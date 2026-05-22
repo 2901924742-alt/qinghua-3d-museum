@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>青花瓷3D博物馆</title>
+
+<style>
+body { margin:0; overflow:hidden; background:#050505; }
+canvas { display:block; }
+
+.title{
+position:fixed;
+top:20px;
+left:50%;
+transform:translateX(-50%);
+color:white;
+font-size:22px;
+z-index:10;
+}
+</style>
+</head>
+
+<body>
+
+<div class="title">青花瓷数字博物馆</div>
+
+<!-- importmap（必须保留） -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+//////////////////////////////////////////////////
+// 场景
+//////////////////////////////////////////////////
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x050505);
+
+//////////////////////////////////////////////////
+// 相机
+//////////////////////////////////////////////////
+const camera = new THREE.PerspectiveCamera(
+45,
+window.innerWidth / window.innerHeight,
+0.1,
+1000
+);
+camera.position.set(0, 1.6, 3.2);
+
+//////////////////////////////////////////////////
+// 渲染器
+//////////////////////////////////////////////////
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+document.body.appendChild(renderer.domElement);
+
+//////////////////////////////////////////////////
+// 控制器
+//////////////////////////////////////////////////
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.6;
+controls.target.set(0, 0, 0);
+
+//////////////////////////////////////////////////
+// 灯光（关键增强）
+//////////////////////////////////////////////////
+scene.add(new THREE.AmbientLight(0xffffff, 1.0));
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+dirLight.position.set(5, 8, 5);
+scene.add(dirLight);
+
+const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
+scene.add(hemiLight);
+
+//////////////////////////////////////////////////
+// GLB加载
+//////////////////////////////////////////////////
+const loader = new GLTFLoader();
+
+loader.load(
+"./qinghuaci.glb",
+
+(gltf)=>{
+
+const model = gltf.scene;
+scene.add(model);
+
+console.log("模型加载成功");
+
+// =========================
+// ✔ 包围盒居中
+// =========================
+const box = new THREE.Box3().setFromObject(model);
+const size = box.getSize(new THREE.Vector3());
+const center = box.getCenter(new THREE.Vector3());
+
+model.position.sub(center);
+
+// =========================
+// ✔ 自动缩放
+// =========================
+const maxSize = Math.max(size.x, size.y, size.z);
+const scale = 2.5 / maxSize;
+model.scale.setScalar(scale);
+
+// =========================
+// ✔ 防埋地
+// =========================
+model.position.y += 0.6;
+
+// =========================
+// ✔ 材质优化（轻微青花瓷效果）
+// =========================
+model.traverse((obj)=>{
+if(obj.isMesh){
+obj.castShadow = true;
+obj.receiveShadow = true;
+
+if(obj.material){
+obj.material.roughness = 0.25;
+obj.material.metalness = 0.05;
+obj.material.needsUpdate = true;
+}
+}
+});
+
+// =========================
+// ✔ 相机 & 控制器对齐（关键）
+// =========================
+camera.lookAt(0,0,0);
+controls.update();
+
+},
+
+(xhr)=>{
+console.log("加载进度:", (xhr.loaded/xhr.total*100).toFixed(1) + "%");
+},
+
+(error)=>{
+console.error("模型加载失败:", error);
+
+// 防黑屏兜底
+const cube = new THREE.Mesh(
+new THREE.BoxGeometry(1,1,1),
+new THREE.MeshNormalMaterial()
+);
+scene.add(cube);
+}
+);
+
+//////////////////////////////////////////////////
+// 动画循环
+//////////////////////////////////////////////////
+function animate(){
+requestAnimationFrame(animate);
+controls.update();
+renderer.render(scene, camera);
+}
+animate();
+
+//////////////////////////////////////////////////
+// 自适应
+//////////////////////////////////////////////////
+window.addEventListener("resize",()=>{
+camera.aspect = window.innerWidth/window.innerHeight;
+camera.updateProjectionMatrix();
+renderer.setSize(window.innerWidth,window.innerHeight);
+});
+
+</script>
+
+</body>
+</html>
