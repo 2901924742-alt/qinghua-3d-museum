@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>青花瓷 3D 数字博物馆</title>
+
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+
+body{
+overflow:hidden;
+background:radial-gradient(circle at top,#1b2a41 0%,#050505 60%);
+font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;
+}
+
+canvas{display:block;}
+
+.title{
+position:fixed;
+top:24px;
+left:50%;
+transform:translateX(-50%);
+color:white;
+font-size:28px;
+font-weight:600;
+z-index:10;
+}
+
+.sub{
+position:fixed;
+top:64px;
+left:50%;
+transform:translateX(-50%);
+color:rgba(255,255,255,.5);
+font-size:13px;
+z-index:10;
+}
+
+.loading{
+position:fixed;
+inset:0;
+display:flex;
+justify-content:center;
+align-items:center;
+background:#050505;
+color:white;
+font-size:18px;
+z-index:999;
+}
+</style>
+</head>
+
+<body>
+
+<div class="loading" id="loading">模型加载中...</div>
+
+<div class="title">青花瓷数字博物馆</div>
+<div class="sub">QINGHUA PORCELAIN DIGITAL MUSEUM</div>
+
+<!-- 🟢 统一使用 module（关键修复） -->
+<script type="module">
+
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js";
+import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
+
+//////////////////////////////////////////////////
+// 场景
+//////////////////////////////////////////////////
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x050505);
+
+//////////////////////////////////////////////////
+// 相机
+//////////////////////////////////////////////////
+const camera = new THREE.PerspectiveCamera(
+45,
+window.innerWidth / window.innerHeight,
+0.1,
+1000
+);
+camera.position.set(0,1.5,3);
+
+//////////////////////////////////////////////////
+// 渲染器
+//////////////////////////////////////////////////
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+document.body.appendChild(renderer.domElement);
+
+//////////////////////////////////////////////////
+// 控制器（修复 OrbitControls 报错）
+//////////////////////////////////////////////////
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.6;
+
+//////////////////////////////////////////////////
+// 灯光（保证不黑屏）
+//////////////////////////////////////////////////
+scene.add(new THREE.AmbientLight(0xffffff,0.9));
+
+const dir = new THREE.DirectionalLight(0xffffff,1.2);
+dir.position.set(5,5,5);
+scene.add(dir);
+
+//////////////////////////////////////////////////
+// GLB 加载（核心稳定写法）
+//////////////////////////////////////////////////
+const loader = new GLTFLoader();
+
+loader.load(
+"/qinghuaci.glb",   // ⭐ Vercel必须用根路径
+
+function(gltf){
+
+const model = gltf.scene;
+scene.add(model);
+
+// 自动居中
+const box = new THREE.Box3().setFromObject(model);
+const center = box.getCenter(new THREE.Vector3());
+model.position.sub(center);
+
+// 自动缩放
+const size = box.getSize(new THREE.Vector3());
+const max = Math.max(size.x,size.y,size.z);
+model.scale.setScalar(2/max);
+
+// 防埋地
+model.position.y += 0.5;
+
+document.getElementById("loading").style.display="none";
+
+console.log("模型加载成功");
+
+},
+
+function(xhr){
+console.log("加载进度:",(xhr.loaded/xhr.total*100).toFixed(1)+"%");
+},
+
+function(err){
+
+console.error("模型加载失败:",err);
+
+// 🔴 防黑屏兜底
+const test = new THREE.Mesh(
+new THREE.BoxGeometry(1,1,1),
+new THREE.MeshNormalMaterial()
+);
+scene.add(test);
+
+document.getElementById("loading").innerText="模型加载失败（显示调试立方体）";
+}
+);
+
+//////////////////////////////////////////////////
+// 动画循环
+//////////////////////////////////////////////////
+function animate(){
+requestAnimationFrame(animate);
+controls.update();
+renderer.render(scene,camera);
+}
+animate();
+
+//////////////////////////////////////////////////
+// 自适应
+//////////////////////////////////////////////////
+window.addEventListener("resize",()=>{
+camera.aspect = window.innerWidth/window.innerHeight;
+camera.updateProjectionMatrix();
+renderer.setSize(window.innerWidth,window.innerHeight);
+});
+
+</script>
+
+</body>
+</html>
