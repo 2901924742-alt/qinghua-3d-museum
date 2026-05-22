@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+
+<meta
+name="viewport"
+content="width=device-width, initial-scale=1.0"
+/>
+
+<title>青花瓷数字博物馆</title>
+
+<style>
+
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+}
+
+body{
+
+overflow:hidden;
+
+background:
+radial-gradient(circle at top,#1b2a41 0%,#050505 70%);
+
+font-family:
+-apple-system,
+BlinkMacSystemFont,
+"PingFang SC",
+sans-serif;
+}
+
+canvas{
+display:block;
+}
+
+.loading{
+
+position:fixed;
+
+inset:0;
+
+display:flex;
+justify-content:center;
+align-items:center;
+
+background:#050505;
+
+color:white;
+
+font-size:20px;
+
+letter-spacing:3px;
+
+z-index:999;
+
+transition:.6s;
+}
+
+.title{
+
+position:fixed;
+
+top:26px;
+left:50%;
+
+transform:translateX(-50%);
+
+color:white;
+
+font-size:32px;
+
+font-weight:600;
+
+letter-spacing:8px;
+
+z-index:10;
+
+text-shadow:0 0 30px rgba(0,0,0,.5);
+}
+
+.sub{
+
+position:fixed;
+
+top:72px;
+left:50%;
+
+transform:translateX(-50%);
+
+color:rgba(255,255,255,.5);
+
+font-size:12px;
+
+letter-spacing:5px;
+
+z-index:10;
+}
+
+.info{
+
+position:fixed;
+
+left:30px;
+bottom:30px;
+
+width:340px;
+
+padding:28px;
+
+background:rgba(255,255,255,.05);
+
+border:1px solid rgba(255,255,255,.08);
+
+backdrop-filter:blur(20px);
+
+border-radius:26px;
+
+color:white;
+
+z-index:10;
+
+transition:.35s;
+}
+
+.info:hover{
+
+transform:translateY(-6px);
+
+background:rgba(255,255,255,.08);
+}
+
+.info h2{
+
+font-size:30px;
+
+margin-bottom:14px;
+
+font-weight:600;
+}
+
+.info p{
+
+font-size:14px;
+
+line-height:2;
+
+opacity:.78;
+}
+
+.tip{
+
+position:fixed;
+
+right:30px;
+bottom:30px;
+
+color:rgba(255,255,255,.4);
+
+font-size:13px;
+
+letter-spacing:2px;
+
+z-index:10;
+}
+
+.glow1{
+
+position:fixed;
+
+width:520px;
+height:520px;
+
+background:
+radial-gradient(circle,
+rgba(77,166,255,.18) 0%,
+transparent 70%);
+
+filter:blur(100px);
+
+top:-120px;
+right:-120px;
+
+pointer-events:none;
+
+z-index:0;
+}
+
+.glow2{
+
+position:fixed;
+
+width:420px;
+height:420px;
+
+background:
+radial-gradient(circle,
+rgba(255,255,255,.08) 0%,
+transparent 70%);
+
+filter:blur(90px);
+
+bottom:-120px;
+left:-120px;
+
+pointer-events:none;
+
+z-index:0;
+}
+
+@media (max-width:768px){
+
+.title{
+font-size:22px;
+top:18px;
+}
+
+.sub{
+top:50px;
+font-size:10px;
+}
+
+.info{
+left:16px;
+bottom:16px;
+width:calc(100% - 32px);
+padding:22px;
+}
+
+.tip{
+display:none;
+}
+
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="loading" id="loading">
+正在进入数字展馆...
+</div>
+
+<div class="glow1"></div>
+<div class="glow2"></div>
+
+<div class="title">
+青花瓷数字博物馆
+</div>
+
+<div class="sub">
+QINGHUA PORCELAIN DIGITAL MUSEUM
+</div>
+
+<div class="info">
+
+<h2>元代青花瓷</h2>
+
+<p>
+青花瓷以钴蓝纹饰与温润釉色闻名，
+承载东方传统审美与工艺精神。<br><br>
+
+本数字展馆融合实时渲染、
+动态灯光与空间氛围设计，
+打造沉浸式数字文物体验。
+</p >
+
+</div>
+
+<div class="tip">
+拖动屏幕自由观看 · 点击暂停旋转
+</div>
+
+<!-- importmap -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+
+import * as THREE from "three";
+
+import { OrbitControls }
+from "three/addons/controls/OrbitControls.js";
+
+import { GLTFLoader }
+from "three/addons/loaders/GLTFLoader.js";
+
+//////////////////////////////////////////////////
+// 场景
+//////////////////////////////////////////////////
+
+const scene = new THREE.Scene();
+
+scene.background =
+new THREE.Color(0x050505);
+
+scene.fog =
+new THREE.Fog(
+0x050505,
+8,
+22
+);
+
+//////////////////////////////////////////////////
+// 相机
+//////////////////////////////////////////////////
+
+const camera =
+new THREE.PerspectiveCamera(
+45,
+window.innerWidth/window.innerHeight,
+0.1,
+1000
+);
+
+camera.position.set(0,1.2,6);
+
+//////////////////////////////////////////////////
+// 渲染器
+//////////////////////////////////////////////////
+
+const renderer =
+new THREE.WebGLRenderer({
+
+antialias:true,
+alpha:true
+
+});
+
+renderer.setSize(
+window.innerWidth,
+window.innerHeight
+);
+
+renderer.setPixelRatio(
+Math.min(window.devicePixelRatio,2)
+);
+
+renderer.outputColorSpace =
+THREE.SRGBColorSpace;
+
+renderer.toneMapping =
+THREE.ACESFilmicToneMapping;
+
+renderer.toneMappingExposure = 1.15;
+
+renderer.shadowMap.enabled = true;
+
+renderer.shadowMap.type =
+THREE.PCFSoftShadowMap;
+
+document.body.appendChild(
+renderer.domElement
+);
+
+//////////////////////////////////////////////////
+// 控制器
+//////////////////////////////////////////////////
+
+const controls =
+new OrbitControls(
+camera,
+renderer.domElement
+);
+
+controls.enableDamping = true;
+
+controls.dampingFactor = 0.05;
+
+controls.autoRotate = true;
+
+controls.autoRotateSpeed = 0.45;
+
+controls.maxPolarAngle =
+Math.PI / 1.12;
+
+controls.minPolarAngle =
+0.12;
+
+controls.minDistance = 2;
+
+controls.maxDistance = 10;
+
+//////////////////////////////////////////////////
+// 灯光
+//////////////////////////////////////////////////
+
+const ambient =
+new THREE.AmbientLight(
+0xffffff,
+1.2
+);
+
+scene.add(ambient);
+
+const mainLight =
+new THREE.DirectionalLight(
+0xffffff,
+2.4
+);
+
+mainLight.position.set(5,8,5);
+
+mainLight.castShadow = true;
+
+mainLight.shadow.mapSize.width = 2048;
+mainLight.shadow.mapSize.height = 2048;
+
+scene.add(mainLight);
+
+const blueLight =
+new THREE.PointLight(
+0x4da6ff,
+2,
+25
+);
+
+blueLight.position.set(-4,3,3);
+
+scene.add(blueLight);
+
+const rimLight =
+new THREE.PointLight(
+0xffffff,
+1.5,
+20
+);
+
+rimLight.position.set(3,2,-3);
+
+scene.add(rimLight);
+
+//////////////////////////////////////////////////
+// 博物馆展台
+//////////////////////////////////////////////////
+
+const podium =
+new THREE.Mesh(
+
+new THREE.CylinderGeometry(
+1.25,
+1.45,
+0.6,
+64
+),
+
+new THREE.MeshStandardMaterial({
+
+color:0x111111,
+
+roughness:0.18,
+
+metalness:0.45
+
+})
+
+);
+
+podium.position.y = -1.05;
+
+podium.receiveShadow = true;
+
+scene.add(podium);
+
+//////////////////////////////////////////////////
+// 地面
+//////////////////////////////////////////////////
+
+const floor =
+new THREE.Mesh(
+
+new THREE.CircleGeometry(
+20,
+64
+),
+
+new THREE.MeshStandardMaterial({
+
+color:0x080808,
+
+roughness:0.35,
+
+metalness:0.08
+
+})
+
+);
+
+floor.rotation.x = -Math.PI/2;
+
+floor.position.y = -1.5;
+
+floor.receiveShadow = true;
+
+scene.add(floor);
+
+//////////////////////////////////////////////////
+// 漂浮粒子
+//////////////////////////////////////////////////
+
+const particlesGeometry =
+new THREE.BufferGeometry();
+
+const particleCount = 1800;
+
+const positions = [];
+
+for(let i=0;i<particleCount;i++){
+
+positions.push(
+(Math.random()-0.5)*22
+);
+
+positions.push(
+Math.random()*10
+);
+
+positions.push(
+(Math.random()-0.5)*22
+);
+
+}
+
+particlesGeometry.setAttribute(
+"position",
+new THREE.Float32BufferAttribute(
+positions,
+3
+)
+);
+
+const particlesMaterial =
+new THREE.PointsMaterial({
+
+size:0.02,
+
+transparent:true,
+
+opacity:0.35,
+
+color:0xffffff
+
+});
+
+const particles =
+new THREE.Points(
+particlesGeometry,
+particlesMaterial
+);
+
+scene.add(particles);
+
+//////////////////////////////////////////////////
+// GLB加载
+//////////////////////////////////////////////////
+
+const loader =
+new GLTFLoader();
+
+let model;
+
+loader.load(
+
+"./qinghuaci.glb",
+
+(gltf)=>{
+
+model = gltf.scene;
+
+scene.add(model);
+
+const box =
+new THREE.Box3()
+.setFromObject(model);
+
+const size =
+box.getSize(
+new THREE.Vector3()
+);
+
+const maxSize =
+Math.max(
+size.x,
+size.y,
+size.z
+);
+
+const scale =
+1.8 / maxSize;
+
+model.scale.setScalar(scale);
+
+const newBox =
+new THREE.Box3()
+.setFromObject(model);
+
+const center =
+newBox.getCenter(
+new THREE.Vector3()
+);
+
+model.position.x -= center.x;
+model.position.y -= center.y;
+model.position.z -= center.z;
+
+//////////////////////////////////////////////////
+// ⭐ 最终高级微悬浮
+//////////////////////////////////////////////////
+
+model.position.y += 0.03;
+
+//////////////////////////////////////////////////
+// 材质增强
+//////////////////////////////////////////////////
+
+model.traverse((obj)=>{
+
+if(obj.isMesh){
+
+obj.castShadow = true;
+
+obj.receiveShadow = true;
+
+if(obj.material){
+
+obj.material.roughness = 0.18;
+
+obj.material.metalness = 0.05;
+
+obj.material.needsUpdate = true;
+
+}
+
+}
+
+});
+
+controls.target.set(0,0.15,0);
+
+controls.update();
+
+//////////////////////////////////////////////////
+// loading消失
+//////////////////////////////////////////////////
+
+document.getElementById(
+"loading"
+).style.opacity = "0";
+
+setTimeout(()=>{
+
+document.getElementById(
+"loading"
+).style.display = "none";
+
+},700);
+
+},
+
+undefined,
+
+(error)=>{
+
+console.error(
+"模型加载失败",
+error
+);
+
+document.getElementById(
+"loading"
+).innerHTML =
+"模型加载失败";
+
+}
+
+);
+
+//////////////////////////////////////////////////
+// 点击暂停旋转
+//////////////////////////////////////////////////
+
+let autoRotate = true;
+
+window.addEventListener(
+"click",
+()=>{
+
+autoRotate = !autoRotate;
+
+controls.autoRotate = autoRotate;
+
+}
+);
+
+//////////////////////////////////////////////////
+// 动画
+//////////////////////////////////////////////////
+
+let time = 0;
+
+function animate(){
+
+requestAnimationFrame(animate);
+
+time += 0.01;
+
+//////////////////////////////////////////////////
+// ⭐ 极轻微呼吸感
+//////////////////////////////////////////////////
+
+if(model){
+
+model.position.y =
+0.03 + Math.sin(time) * 0.008;
+
+}
+
+particles.rotation.y += 0.00025;
+
+controls.update();
+
+renderer.render(
+scene,
+camera
+);
+
+}
+
+animate();
+
+//////////////////////////////////////////////////
+// 自适应
+//////////////////////////////////////////////////
+
+window.addEventListener(
+"resize",
+()=>{
+
+camera.aspect =
+window.innerWidth /
+window.innerHeight;
+
+camera.updateProjectionMatrix();
+
+renderer.setSize(
+window.innerWidth,
+window.innerHeight
+);
+
+}
+);
+
+</script>
+
+</body>
+</html>
