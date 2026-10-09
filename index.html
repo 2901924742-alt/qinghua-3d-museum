@@ -222,13 +222,19 @@ const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHei
 camera.position.set(0, 0.8, 5);
 
 /* ================= 渲染器 ================= */
-// 手机保留最高 3 倍像素；大屏按总像素预算控制开销，不随 DPR 无限放大。
+// 触屏保留清晰度；桌面允许超大屏低于 1 倍渲染，并按实测帧间隔调整。
+const desktopRenderQuery = window.matchMedia('(hover: hover) and (pointer: fine)');
+function isDesktopRenderer() {
+    return desktopRenderQuery.matches;
+}
 function museumPixelRatio() {
     const nativeRatio = Math.min(window.devicePixelRatio || 1, 3);
-    const pixelBudget = 4000000;
-    return Math.min(nativeRatio, Math.max(1, Math.sqrt(pixelBudget / (window.innerWidth * window.innerHeight))));
+    const area = window.innerWidth * window.innerHeight;
+    return isDesktopRenderer()
+        ? Math.min(nativeRatio, Math.sqrt(2600000 / area))
+        : Math.min(nativeRatio, Math.max(1, Math.sqrt(4000000 / area)));
 }
-const renderer = new THREE.WebGLRenderer({ antialias:true });
+const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:isDesktopRenderer() ? 'high-performance' : 'default' });
 renderer.setPixelRatio(museumPixelRatio());
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -472,6 +478,40 @@ for (let i = 0; i < 14; i++) {
     mistClouds.push(cloud);
 }
 
+// 保留每一团雾气的漂浮轨迹，合并成一次绘制，减少透明层的提交开销。
+const useInstancedMist = isDesktopRenderer();
+if (useInstancedMist) mistClouds.forEach(cloud => scene.remove(cloud));
+const mistOpacity = new THREE.InstancedBufferAttribute(new Float32Array(mistClouds.length), 1);
+mistGeometry.setAttribute('mistOpacity', mistOpacity);
+const batchedMistMaterial = new THREE.MeshBasicMaterial({
+    map: mistTexture, color: 0xdbe1e9, transparent: true,
+    depthWrite: false, fog: true, side: THREE.FrontSide
+});
+batchedMistMaterial.onBeforeCompile = shader => {
+    shader.vertexShader = 'attribute float mistOpacity; varying float vMistOpacity;\n' + shader.vertexShader;
+    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvMistOpacity = mistOpacity;');
+    shader.fragmentShader = 'varying float vMistOpacity;\n' + shader.fragmentShader;
+    shader.fragmentShader = shader.fragmentShader.replace('#include <alphatest_fragment>', 'diffuseColor.a *= vMistOpacity;\nif (diffuseColor.a < 0.002) discard;\n#include <alphatest_fragment>');
+};
+const batchedMist = new THREE.InstancedMesh(mistGeometry, batchedMistMaterial, mistClouds.length);
+batchedMist.renderOrder = -3;
+batchedMist.frustumCulled = false;
+if (useInstancedMist) scene.add(batchedMist);
+const sortedMistClouds = [...mistClouds];
+function updateMistInstances() {
+    if (!useInstancedMist) return;
+    // 从远到近合成半透明雾气，视角改变时也保持正确的重叠顺序。
+    sortedMistClouds.sort((a, b) => b.position.distanceToSquared(camera.position) - a.position.distanceToSquared(camera.position));
+    sortedMistClouds.forEach((cloud, i) => {
+        cloud.updateMatrix();
+        batchedMist.setMatrixAt(i, cloud.matrix);
+        mistOpacity.setX(i, cloud.material.opacity);
+    });
+    batchedMist.instanceMatrix.needsUpdate = true;
+    mistOpacity.needsUpdate = true;
+}
+updateMistInstances();
+
 /* ================= 🕳️ 黑洞：空间吸积盘与连续透镜光带 ================= */
 // 薄盘保留固定的空间朝向；黑色中心实际遮挡背面，环绕相机时有透视变化。
 // 透镜光带仍是艺术化近似，不使用昂贵的逐像素光线步进或后处理。
@@ -491,16 +531,22 @@ function createFlowTexture() {
     return texture;
 }
 const flowTexture = createFlowTexture();
-const flowUniforms = { uTime: { value: 0 }, uFlow: { value: flowTexture } };
+const flowUniforms = {
+    uTime: { value: 0 }, uFlow: { value: flowTexture },
+    uInclination: { value: 0.15 }, uLensRotation: { value: 0 }
+};
 const flowShader = `
     uniform float uTime;
     uniform sampler2D uFlow;
+    uniform float uInclination;
+    uniform float uLensRotation;
     float flow(vec2 direction, float radius) {
-        float a = uTime * 0.045;
+        // 差速旋转：内侧流动稍快，以连续的圆坐标避免首尾接缝。
+        float a = uTime * (0.045 + 0.055 / max(radius, 0.8)) + radius * 0.45;
         direction = mat2(cos(a), -sin(a), sin(a), cos(a)) * direction;
         // 用单位圆坐标采样，首尾同一点，避免 atan 的 -π / π 接缝。
-        return texture2D(uFlow, direction * 0.035 + vec2(radius * 0.027, 0.0)).r * 0.65
-             + texture2D(uFlow, direction * 0.08 + vec2(radius * 0.053, 0.37)).r * 0.35;
+        return texture2D(uFlow, direction * 0.10 + vec2(radius * 0.045, 0.0)).r * 0.65
+             + texture2D(uFlow, direction * 0.19 + vec2(radius * 0.083, 0.37)).r * 0.35;
     }
     float band(float d, float width) { return exp(-d * d / (width * width)); }
 `;
@@ -527,16 +573,20 @@ const accretionMaterial = new THREE.ShaderMaterial({
             vec2 direction = vDisk / max(radius, 0.001);
             float turbulence = flow(direction, radius);
             float edge = smoothstep(1.85, 2.15, radius) * (1.0 - smoothstep(4.7, 5.9, radius));
-            float stripes = 0.82 + 0.18 * sin(radius * 11.0 + turbulence * 2.5);
+            float frequency = radius * 24.0 + turbulence * 18.0;
+            float detail = 1.0 - smoothstep(0.35, 1.4, fwidth(frequency));
+            float stripes = 0.87 + 0.13 * sin(frequency) * detail;
             float emission = edge * (0.60 + turbulence * 0.75) * stripes / pow(max(radius * 0.5, 1.0), 1.5);
-            vec3 color = mix(vec3(0.60, 0.37, 0.16), vec3(1.0, 0.92, 0.73), clamp(emission * 1.8, 0.0, 1.0));
-            gl_FragColor = vec4(color * emission * 1.75, edge * 0.95);
+            float beaming = 1.0 - direction.x * 0.36 * (1.0 - uInclination);
+            float heat = clamp((5.9 - radius) / 3.6, 0.0, 1.0);
+            vec3 color = mix(vec3(0.68, 0.32, 0.10), vec3(1.0, 0.94, 0.80), heat * beaming);
+            gl_FragColor = vec4(color * emission * beaming * 1.9, edge * 0.95);
             #include <tonemapping_fragment>
             #include <colorspace_fragment>
         }
     `,
     transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide,
-    forceSinglePass: true
+    forceSinglePass: true, extensions: { derivatives: true }
 });
 const accretionDisk = new THREE.Mesh(new THREE.RingGeometry(1.85, 5.9, 128, 8), accretionMaterial);
 accretionDisk.rotation.set(Math.PI / 2 + 0.14, 0, 0.06);
@@ -557,18 +607,31 @@ const blackHoleMaterial = new THREE.ShaderMaterial({
         void main() {
             vec2 p = (vUv - 0.5) * 3.5;
             float radius = length(p);
-            if (radius > 1.65 || radius < 0.88) discard;
+            if (radius > 1.65 || radius < 0.865) discard;
+            // 透镜方向由实际吸积盘的投影确定，跟随空间视角而非固定的屏幕圆环。
+            float c = cos(uLensRotation), s = sin(uLensRotation);
+            p = mat2(c, -s, s, c) * p;
             vec2 direction = p / max(radius, 0.001);
             float turbulence = flow(direction, radius * 2.0);
-            float strength = mix(0.52, 1.0, 0.5 + 0.5 * direction.y);
-            float arc = (band(radius - 1.02, 0.09) * 0.90 + band(radius - 1.16, 0.15) * 0.22)
-                      * strength * (0.65 + turbulence * 0.55);
-            float photon = band(radius - 0.91, 0.022) * 0.46;
-            float halo = band(radius - 1.06, 0.29) * 0.075;
-            // 不切分上下半环；下方光带保持连续，亮度柔和过渡。
-            vec3 light = vec3(1.0, 0.84, 0.57) * arc * 0.95
-                       + vec3(1.0, 0.97, 0.87) * photon + vec3(0.47, 0.32, 0.17) * halo;
-            light *= (1.0 + 0.18 * clamp(-p.x, -1.0, 1.0)) * (0.97 + 0.03 * sin(uTime * 0.55));
+            float upper = smoothstep(-0.25, 0.50, direction.y);
+            float edgeOn = 1.0 - uInclination;
+            float lensRadius = mix(0.97, 1.10, upper * edgeOn);
+            float width = mix(0.045, 0.082, upper * edgeOn);
+            float strength = mix(0.24, 1.0, upper) * mix(0.30, 1.0, edgeOn);
+            float frequency = radius * 75.0 + turbulence * 12.0;
+            float detail = 1.0 - smoothstep(0.35, 1.4, fwidth(frequency));
+            float filament = 0.88 + 0.12 * sin(frequency) * detail;
+            float arc = band(radius - lensRadius, width) * strength
+                      * (0.63 + turbulence * 0.55) * filament;
+            float secondary = band(radius - (lensRadius + 0.13), width * 0.55) * strength * 0.12;
+            float photon = band(radius - 0.905, max(0.013, fwidth(radius))) * 0.48;
+            float halo = band(radius - lensRadius, 0.23) * strength * 0.06;
+            // 下侧是一条更细、更弱的连续光带，中心周围仍保留完整光子环。
+            float beaming = 1.0 - direction.x * 0.38 * edgeOn;
+            vec3 warm = mix(vec3(1.0, 0.65, 0.30), vec3(1.0, 0.94, 0.79), clamp(beaming - 0.40, 0.0, 1.0));
+            vec3 light = warm * (arc + secondary) * beaming
+                       + vec3(1.0, 0.96, 0.84) * photon + vec3(0.47, 0.30, 0.15) * halo;
+            light *= 0.98 + 0.02 * sin(uTime * 0.55);
             float alpha = clamp(max(max(light.r, light.g), light.b) * 1.8, 0.0, 1.0);
             gl_FragColor = vec4(light / max(alpha, 0.001), alpha);
             #include <tonemapping_fragment>
@@ -576,7 +639,7 @@ const blackHoleMaterial = new THREE.ShaderMaterial({
         }
     `,
     transparent: true, depthWrite: false,
-    fog: false, side: THREE.FrontSide
+    fog: false, side: THREE.FrontSide, extensions: { derivatives: true }
 });
 const blackHoleVisual = new THREE.Mesh(new THREE.PlaneGeometry(7, 7), blackHoleMaterial);
 blackHoleVisual.renderOrder = 1;
@@ -588,6 +651,26 @@ function updateBlackHoleLayout() {
 }
 updateBlackHoleLayout();
 scene.add(blackHoleGroup);
+
+const diskNormal = new THREE.Vector3();
+const holeView = new THREE.Vector3();
+const diskMajorAxis = new THREE.Vector3();
+const screenAxis = new THREE.Vector3();
+const inverseCameraRotation = new THREE.Quaternion();
+function updateBlackHoleView() {
+    blackHoleVisual.lookAt(camera.position);
+    diskNormal.set(0, 0, 1).applyQuaternion(accretionDisk.quaternion);
+    holeView.copy(camera.position).sub(blackHoleGroup.position).normalize();
+    flowUniforms.uInclination.value = Math.abs(diskNormal.dot(holeView));
+    diskMajorAxis.crossVectors(diskNormal, holeView);
+    if (diskMajorAxis.lengthSq() > 0.00001) {
+        inverseCameraRotation.copy(camera.quaternion).invert();
+        screenAxis.copy(diskMajorAxis).applyQuaternion(inverseCameraRotation);
+        // 盘的长轴没有正反方向，统一朝右，避免角度 π 将上下光带倒置。
+        if (screenAxis.x < 0) screenAxis.negate();
+        flowUniforms.uLensRotation.value = Math.atan2(screenAxis.y, screenAxis.x);
+    }
+}
 
 
 /* ================= 模型 ================= */
@@ -642,8 +725,71 @@ loader.load("./qinghuaci.glb",(gltf)=>{
 
 /* ================= 动画 ================= */
 const animationClock = new THREE.Clock();
-function animate(){
+let previousFrameAt = 0;
+let previousRafAt = 0;
+let qualityWindowAt = 0;
+let qualitySamples = 0;
+let qualityTotalMs = 0;
+let fastQualityWindows = 0;
+function resetRenderQuality() {
+    renderer.setPixelRatio(museumPixelRatio());
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    previousFrameAt = previousRafAt = qualityWindowAt = 0;
+    qualitySamples = qualityTotalMs = fastQualityWindows = 0;
+}
+function monitorDesktopQuality(timestamp) {
+    if (!isDesktopRenderer()) return;
+    const gap = previousRafAt ? Math.min(timestamp - previousRafAt, 150) : 0;
+    previousRafAt = timestamp;
+    // 排除后台切换、加载和窗口调整，避免一次停顿就降低清晰度。
+    if (document.getElementById('loading').style.display !== 'none' || gap <= 0) {
+        qualityWindowAt = timestamp;
+        qualitySamples = qualityTotalMs = 0;
+        return;
+    }
+    qualitySamples++;
+    qualityTotalMs += gap;
+    if (timestamp - qualityWindowAt < 2000) return;
+    const averageMs = qualityTotalMs / Math.max(qualitySamples, 1);
+    const ceiling = museumPixelRatio();
+    const current = renderer.getPixelRatio();
+    const floor = Math.min(ceiling, 0.65);
+    let next = current;
+    if (qualitySamples >= 8 && averageMs > 25) {
+        next = Math.max(floor, current * 0.85);
+        fastQualityWindows = 0;
+    } else if (averageMs < 18) {
+        // 连续三个稳定窗口后才恢复清晰度，避免分辨率反复跳动。
+        if (++fastQualityWindows >= 3) {
+            next = Math.min(ceiling, current * 1.08);
+            fastQualityWindows = 0;
+        }
+    } else {
+        fastQualityWindows = 0;
+    }
+    if (Math.abs(next - current) > 0.02) {
+        renderer.setPixelRatio(next);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    qualityWindowAt = timestamp;
+    qualitySamples = qualityTotalMs = 0;
+}
+document.addEventListener('visibilitychange', () => {
+    previousFrameAt = previousRafAt = qualityWindowAt = 0;
+    qualitySamples = qualityTotalMs = 0;
+    animationClock.getDelta();
+});
+function animate(timestamp = 0){
     requestAnimationFrame(animate);
+    if (document.hidden) return;
+    monitorDesktopQuality(timestamp);
+    // 高刷新率电脑最高重绘 60 次/秒；手机沿用当前渲染节奏。
+    const interval = 1000 / 60;
+    const sinceFrame = timestamp - previousFrameAt;
+    const dueFrames = Math.floor((Math.max(0, sinceFrame) + 0.00001) / interval);
+    if (isDesktopRenderer() && previousFrameAt && dueFrames === 0) return;
+    previousFrameAt = isDesktopRenderer() && previousFrameAt
+        ? previousFrameAt + dueFrames * interval : timestamp;
     const delta = Math.min(animationClock.getDelta(), 0.1);
     const elapsed = animationClock.elapsedTime;
     controls.update(delta);
@@ -663,9 +809,10 @@ function animate(){
         cloud.quaternion.copy(camera.quaternion);
         cloud.material.opacity = 0.43 + Math.sin(elapsed * 0.2 + phase) * 0.08;
     });
+    updateMistInstances();
     
     // 只有透镜光带随视线转动，实体中心和薄盘保留空间深度。
-    blackHoleVisual.lookAt(camera.position);
+    updateBlackHoleView();
     blackHoleMaterial.uniforms.uTime.value = performance.now() * 0.001;
 
     renderer.render(scene, camera);
@@ -676,8 +823,7 @@ animate();
 window.addEventListener("resize",()=>{
     camera.aspect = window.innerWidth/window.innerHeight;
     camera.updateProjectionMatrix();
-    renderer.setPixelRatio(museumPixelRatio());
-    renderer.setSize(window.innerWidth,window.innerHeight);
+    resetRenderQuality();
     updateBlackHoleLayout();
 });
 
