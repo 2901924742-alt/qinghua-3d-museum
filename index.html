@@ -22,7 +22,12 @@ display:flex;justify-content:center;align-items:center;
 background:#050505;color:white;
 font-size:20px;z-index:999;
 letter-spacing:2px;
+flex-direction:column;gap:16px;padding:24px;text-align:center;
 }
+
+.loading-status{font-size:13px;color:rgba(255,255,255,.65);letter-spacing:0;max-width:420px;}
+#retryBtn{padding:10px 18px;border:1px solid rgba(255,255,255,.3);border-radius:12px;background:rgba(255,255,255,.08);color:white;cursor:pointer;}
+#retryBtn[hidden]{display:none;}
 
 .title{
 position:fixed;
@@ -133,7 +138,11 @@ background:rgba(255,255,255,.15);
 
 <body>
 
-<div class="loading" id="loading">正在进入屈劲舟制作的数字展馆doge...</div>
+<div class="loading" id="loading" role="status" aria-live="polite">
+<span id="loadingTitle">正在进入屈劲舟制作的数字展馆doge...</span>
+<span class="loading-status" id="loadingStatus"></span>
+<button id="retryBtn" type="button" hidden>重新加载</button>
+</div>
 
 <div class="title">天传数字博物馆</div>
 <div class="sub">TJCM PORCELAIN DIGITAL MUSEUM</div>
@@ -158,6 +167,25 @@ background:rgba(255,255,255,.15);
 
 <button id="restoreBtn">恢复介绍</button>
 
+<script>
+// 独立于模块运行，依赖加载失败时也能给出提示并重新加载。
+window.showMuseumLoadError = function(message) {
+    const loading = document.getElementById('loading');
+    if (loading.style.display === 'none') return;
+    document.getElementById('loadingTitle').textContent = '展馆加载失败';
+    document.getElementById('loadingStatus').textContent = message;
+    document.getElementById('retryBtn').hidden = false;
+};
+document.getElementById('retryBtn').addEventListener('click', () => window.location.reload());
+window.addEventListener('error', (event) => {
+    if (event.target instanceof HTMLScriptElement && event.target.type === 'module') {
+        window.showMuseumLoadError('渲染组件未能加载，请检查网络后重试。');
+    } else if (event.message && document.getElementById('loading').style.display !== 'none') {
+        window.showMuseumLoadError('展馆暂时无法启动，请检查网络和浏览器的 WebGL 支持后重试。');
+    }
+}, true);
+</script>
+
 <script type="importmap">
 {
   "imports": {
@@ -176,16 +204,19 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 /* ================= 场景 ================= */
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x050505);
-scene.fog = new THREE.Fog(0x050505, 6, 18);
+// 保留近景粒子的雾化层次，主体和远景分别关闭材质雾效。
+scene.fog = new THREE.Fog(0x050505, 12, 40);
 
 /* ================= 相机 ================= */
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
-camera.position.set(0, 1.4, 10);
+camera.position.set(0, 0.8, 5);
 
 /* ================= 渲染器 ================= */
 const renderer = new THREE.WebGLRenderer({ antialias:true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
 document.body.appendChild(renderer.domElement);
 
 /* ================= 控制器 ================= */
@@ -193,46 +224,50 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.autoRotate = true;
 controls.autoRotateSpeed = 0.5;
+controls.target.set(0, 0.1, 0);
+controls.minDistance = 3;
+controls.maxDistance = 12;
+controls.update();
 
-/* ================= 🌟 高强度均匀白光照明 ================= */
-const ambientLight = new THREE.AmbientLight(0xffffff, 5.0);
+/* ================= 🌟 均匀补光与釉面层次 ================= */
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
 scene.add(ambientLight);
 
-const hemiLight = new THREE.HemisphereLight(0xc8ddff, 0xf5e6d3, 3.5);
+const hemiLight = new THREE.HemisphereLight(0xc8ddff, 0xf5e6d3, 0.8);
 scene.add(hemiLight);
 
-const mainLight = new THREE.DirectionalLight(0xffffff, 3.5);
+const mainLight = new THREE.DirectionalLight(0xffffff, 2.4);
 mainLight.position.set(0, 2.2, 4.5);
 scene.add(mainLight);
 
-const leftLight = new THREE.DirectionalLight(0xffffff, 2.8);
+const leftLight = new THREE.DirectionalLight(0xffffff, 0.6);
 leftLight.position.set(-3.5, 1.8, 1.5);
 scene.add(leftLight);
 
-const rightLight = new THREE.DirectionalLight(0xffffff, 2.8);
+const rightLight = new THREE.DirectionalLight(0xffffff, 0.6);
 rightLight.position.set(3.5, 1.8, 1.5);
 scene.add(rightLight);
 
-const backLight = new THREE.DirectionalLight(0xffffff, 2.2);
+const backLight = new THREE.DirectionalLight(0xffffff, 0.8);
 backLight.position.set(0, 1.5, -4);
 scene.add(backLight);
 
-const topLight = new THREE.DirectionalLight(0xffffff, 2.5);
+const topLight = new THREE.DirectionalLight(0xffffff, 0.5);
 topLight.position.set(0, 3.5, 0);
 scene.add(topLight);
 
-const bottomLight = new THREE.DirectionalLight(0xffffff, 1.8);
+const bottomLight = new THREE.DirectionalLight(0xffffff, 0.15);
 bottomLight.position.set(0, -1.2, 0);
 scene.add(bottomLight);
 
-const fillLeft = new THREE.PointLight(0xffffff, 1.0);
+const fillLeft = new THREE.PointLight(0xffffff, 0.35);
 fillLeft.position.set(-2, 1.0, 2);
 scene.add(fillLeft);
-const fillRight = new THREE.PointLight(0xffffff, 1.0);
+const fillRight = new THREE.PointLight(0xffffff, 0.35);
 fillRight.position.set(2, 1.0, 2);
 scene.add(fillRight);
 
-const breathLight = new THREE.PointLight(0xffffff, 1.0);
+const breathLight = new THREE.PointLight(0xffffff, 0.25);
 breathLight.position.set(0, 1.6, 1.5);
 scene.add(breathLight);
 
@@ -295,6 +330,7 @@ function createStarTexture() {
         ctx.fill();
     }
     const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.ClampToEdgeWrapping;
     return texture;
@@ -303,7 +339,7 @@ function createStarTexture() {
 const starTexture = createStarTexture();
 const starSphere = new THREE.Mesh(
     new THREE.SphereGeometry(500, 64, 64),
-    new THREE.MeshBasicMaterial({ map: starTexture, side: THREE.BackSide, depthWrite: false })
+    new THREE.MeshBasicMaterial({ map: starTexture, side: THREE.BackSide, depthWrite: false, fog: false })
 );
 scene.add(starSphere);
 
@@ -317,7 +353,7 @@ for (let i = 0; i < dustCount; i++) {
     dustPositions.push((Math.random() - 0.5) * 150 - 50);
 }
 starDustGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(dustPositions), 3));
-const starDust = new THREE.Points(starDustGeo, new THREE.PointsMaterial({ color: 0xaaccff, size: 0.08, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending }));
+const starDust = new THREE.Points(starDustGeo, new THREE.PointsMaterial({ color: 0xaaccff, size: 0.08, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, fog: false }));
 scene.add(starDust);
 
 /* ================= 🕳️ 黑洞特效（位置更近，尺寸更大，更明显） ================= */
@@ -369,6 +405,12 @@ blackHoleGroup.add(ringParticles);
 // 🔥 将黑洞放置在左后方较近位置，确保用户旋转相机后能明显看到
 blackHoleGroup.position.set(-18, 6, -25);
 blackHoleGroup.scale.set(1.5, 1.5, 1.5);
+// 远处黑洞与粒子光环不受近景雾影响。
+blackHoleGroup.traverse((object) => {
+    if (!object.material) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    materials.forEach((material) => { material.fog = false; });
+});
 scene.add(blackHoleGroup);
 
 // 添加一个微弱的点光源模拟黑洞周围的热辐射（不影响主照明，但增强视觉效果）
@@ -380,10 +422,26 @@ scene.add(blackHoleGlow);
 const loader = new GLTFLoader();
 loader.load("./qinghuaci.glb",(gltf)=>{
     const model = gltf.scene;
-    scene.add(model);
+    // 保留原始颜色、贴图和 IOR；修正瓷器的金属度及被关闭的釉面反射。
+    model.traverse((object) => {
+        if (!object.isMesh) return;
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        materials.forEach((material) => {
+            if (!material.isMeshStandardMaterial) return;
+            material.metalness = 0;
+            material.roughness = 0.38;
+            if ('specularIntensity' in material) material.specularIntensity = 1;
+            material.fog = false;
+            material.needsUpdate = true;
+        });
+    });
     const box = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
     const maxSize = Math.max(size.x,size.y,size.z);
+    if (!Number.isFinite(maxSize) || maxSize <= 0) {
+        window.showMuseumLoadError('模型尺寸无效，请检查模型文件后重试。');
+        return;
+    }
     model.scale.setScalar(1.8 / maxSize);
     const newBox = new THREE.Box3().setFromObject(model);
     const newCenter = newBox.getCenter(new THREE.Vector3());
@@ -392,7 +450,17 @@ loader.load("./qinghuaci.glb",(gltf)=>{
     model.position.z -= newCenter.z;
     model.position.y -= minY;
     model.position.y += (-1.05 + 0.28);
+    scene.add(model);
     document.getElementById("loading").style.display="none";
+}, (event) => {
+    const status = document.getElementById('loadingStatus');
+    if (!document.getElementById('retryBtn').hidden) return;
+    status.textContent = event.lengthComputable && event.total > 0
+        ? `模型加载中 ${Math.round(event.loaded / event.total * 100)}%`
+        : '正在加载瓷器模型…';
+}, (error) => {
+    console.error('瓷器模型加载失败：', error);
+    window.showMuseumLoadError('瓷器模型未能加载，请检查网络及 qinghuaci.glb 文件后重试。');
 });
 
 /* ================= 动画 ================= */
@@ -400,7 +468,7 @@ function animate(){
     requestAnimationFrame(animate);
     controls.update();
     particles.rotation.y += 0.00025;
-    breathLight.intensity = 0.8 + Math.sin(Date.now()*0.0012)*0.3;
+    breathLight.intensity = 0.25 + Math.sin(Date.now()*0.0012)*0.1;
     breathLight.position.x = Math.sin(Date.now()*0.0008)*0.8;
     starSphere.rotation.y += 0.0003;
     starSphere.rotation.x += 0.0001;
@@ -439,15 +507,22 @@ infoBox.addEventListener("touchmove",(e)=>{
 });
 infoBox.addEventListener("mousedown",(e)=>{
     startY = e.clientY;
+    const cleanup = () => {
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', cleanup);
+        window.removeEventListener('blur', cleanup);
+    };
     const move = (ev)=>{
         let diff = ev.clientY - startY;
         if(diff < -80){
             infoBox.classList.add("hide");
             restoreBtn.style.display="block";
-            document.removeEventListener("mousemove",move);
+            cleanup();
         }
     };
     document.addEventListener("mousemove",move);
+    document.addEventListener('mouseup', cleanup);
+    window.addEventListener('blur', cleanup);
 });
 restoreBtn.addEventListener("click",()=>{
     infoBox.classList.remove("hide");
@@ -457,3 +532,4 @@ restoreBtn.addEventListener("click",()=>{
 
 </body>
 </html>
+
