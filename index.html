@@ -755,25 +755,15 @@ const blackHoleMaterial = new THREE.ShaderMaterial({
             p = mat2(c, -s, s, c) * p;
             vec2 direction = p / max(radius, 0.001);
             float turbulence = flow(direction, radius * 2.0);
-            ${useInstancedMist ? `
-            // 上下使用相同的宽度与亮度分布，在吸积盘两端连续汇合。
-            float curvature = smoothstep(0.0, 0.50, abs(direction.y));
+            // 手机与电脑共用光环参数；不改动各自的分辨率、抗锯齿和渲染节奏。
             float edgeOn = 1.0 - uInclination;
-            float bend = abs(direction.y);
+            // 平方曲线在盘的长轴两侧切线连续，避免 abs 在交界处折出尖角。
+            float bend = direction.y * direction.y;
             float lensRadius = 0.955 + 0.105 * bend * edgeOn;
-            float width = mix(0.045, 0.072, curvature * edgeOn);
+            // 同一视角整圈保持相同宽度，避免横向光带两端出现收窄的接头。
+            float width = mix(0.045, 0.072, edgeOn);
             width = max(width, fwidth(radius) * 1.5);
             float strength = 0.90 * mix(0.30, 1.0, edgeOn);
-            ` : `
-            // 手机保留已经合适的光环参数和绘制开销。
-            float upper = smoothstep(-0.25, 0.50, direction.y);
-            float edgeOn = 1.0 - uInclination;
-            float bend = max(direction.y, 0.0);
-            float lensRadius = 0.955 + 0.105 * bend * edgeOn;
-            float width = mix(0.038, 0.072, upper * edgeOn);
-            width = max(width, fwidth(radius) * 1.5);
-            float strength = mix(0.32, 0.90, upper) * mix(0.30, 1.0, edgeOn);
-            `}
             float frequency = radius * 75.0 + turbulence * 12.0;
             float detail = 1.0 - smoothstep(0.35, 1.4, fwidth(frequency));
             float filament = 0.88 + 0.12 * sin(frequency) * detail;
