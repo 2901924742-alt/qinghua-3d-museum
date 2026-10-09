@@ -222,7 +222,7 @@ const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHei
 camera.position.set(0, 0.8, 5);
 
 /* ================= 渲染器 ================= */
-// 触屏保留清晰度；桌面允许超大屏低于 1 倍渲染，并按实测帧间隔调整。
+// 触屏保留清晰度；桌面至少保留 1 倍渲染，仅按实测帧间隔调整超采样。
 const desktopRenderQuery = window.matchMedia('(hover: hover) and (pointer: fine)');
 function isDesktopRenderer() {
     return desktopRenderQuery.matches;
@@ -231,7 +231,7 @@ function museumPixelRatio() {
     const nativeRatio = Math.min(window.devicePixelRatio || 1, 3);
     const area = window.innerWidth * window.innerHeight;
     return isDesktopRenderer()
-        ? Math.min(nativeRatio, Math.sqrt(2600000 / area))
+        ? Math.min(nativeRatio, Math.max(1, Math.sqrt(2600000 / area)))
         : Math.min(nativeRatio, Math.max(1, Math.sqrt(4000000 / area)));
 }
 const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:isDesktopRenderer() ? 'high-performance' : 'default' });
@@ -615,31 +615,37 @@ const blackHoleMaterial = new THREE.ShaderMaterial({
             float turbulence = flow(direction, radius * 2.0);
             float upper = smoothstep(-0.25, 0.50, direction.y);
             float edgeOn = 1.0 - uInclination;
-            float lensRadius = mix(0.97, 1.10, upper * edgeOn);
-            float width = mix(0.045, 0.082, upper * edgeOn);
-            float strength = mix(0.24, 1.0, upper) * mix(0.30, 1.0, edgeOn);
+            // 上侧弯曲像更宽，下侧更窄；在盘的两端连续过渡，避免拼接双圈。
+            float bend = max(direction.y, 0.0);
+            float lensRadius = 0.955 + 0.105 * bend * edgeOn;
+            float width = mix(0.038, 0.072, upper * edgeOn);
+            width = max(width, fwidth(radius) * 1.5);
+            float strength = mix(0.32, 0.90, upper) * mix(0.30, 1.0, edgeOn);
             float frequency = radius * 75.0 + turbulence * 12.0;
             float detail = 1.0 - smoothstep(0.35, 1.4, fwidth(frequency));
             float filament = 0.88 + 0.12 * sin(frequency) * detail;
             float arc = band(radius - lensRadius, width) * strength
                       * (0.63 + turbulence * 0.55) * filament;
-            float secondary = band(radius - (lensRadius + 0.13), width * 0.55) * strength * 0.12;
-            float photon = band(radius - 0.905, max(0.013, fwidth(radius))) * 0.48;
-            float halo = band(radius - lensRadius, 0.23) * strength * 0.06;
+            // 光子环靠近暗区并弱化，避免明亮的独立圆圈压过弯曲光带。
+            float photon = band(radius - 0.905, max(0.016, fwidth(radius) * 1.5)) * 0.10;
+            float halo = band(radius - lensRadius, 0.15) * strength * 0.07;
             // 下侧是一条更细、更弱的连续光带，中心周围仍保留完整光子环。
             float beaming = 1.0 - direction.x * 0.38 * edgeOn;
             vec3 warm = mix(vec3(1.0, 0.65, 0.30), vec3(1.0, 0.94, 0.79), clamp(beaming - 0.40, 0.0, 1.0));
-            vec3 light = warm * (arc + secondary) * beaming
+            vec3 light = warm * arc * beaming
                        + vec3(1.0, 0.96, 0.84) * photon + vec3(0.47, 0.30, 0.15) * halo;
             light *= 0.98 + 0.02 * sin(uTime * 0.55);
-            float alpha = clamp(max(max(light.r, light.g), light.b) * 1.8, 0.0, 1.0);
-            gl_FragColor = vec4(light / max(alpha, 0.001), alpha);
+            // 光带用连续亮度合成，避免除透明度导致轮廓突变。
+            gl_FragColor = vec4(light, 1.0);
             #include <tonemapping_fragment>
             #include <colorspace_fragment>
         }
     `,
     transparent: true, depthWrite: false,
-    fog: false, side: THREE.FrontSide, extensions: { derivatives: true }
+    // 滤色合成避免光带与吸积盘相交处相加溢出成白色块。
+    fog: false, side: THREE.FrontSide, blending: THREE.CustomBlending,
+    blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcColorFactor,
+    extensions: { derivatives: true }
 });
 const blackHoleVisual = new THREE.Mesh(new THREE.PlaneGeometry(7, 7), blackHoleMaterial);
 blackHoleVisual.renderOrder = 1;
@@ -658,9 +664,15 @@ const diskMajorAxis = new THREE.Vector3();
 const screenAxis = new THREE.Vector3();
 const inverseCameraRotation = new THREE.Quaternion();
 function updateBlackHoleView() {
-    blackHoleVisual.lookAt(camera.position);
     diskNormal.set(0, 0, 1).applyQuaternion(accretionDisk.quaternion);
     holeView.copy(camera.position).sub(blackHoleGroup.position).normalize();
+    // 光带置于黑色中心的前切面，保持投影大小，避免被球体深度裁出断口。
+    const holeScale = blackHoleGroup.scale.x;
+    const viewDistance = camera.position.distanceTo(blackHoleGroup.position) / holeScale;
+    const frontOffset = Math.min(1.80, viewDistance * 0.5);
+    blackHoleVisual.position.copy(holeView).multiplyScalar(frontOffset);
+    blackHoleVisual.scale.setScalar(Math.max(0.01, (viewDistance - frontOffset) / viewDistance));
+    blackHoleVisual.lookAt(camera.position);
     flowUniforms.uInclination.value = Math.abs(diskNormal.dot(holeView));
     diskMajorAxis.crossVectors(diskNormal, holeView);
     if (diskMajorAxis.lengthSq() > 0.00001) {
@@ -753,7 +765,8 @@ function monitorDesktopQuality(timestamp) {
     const averageMs = qualityTotalMs / Math.max(qualitySamples, 1);
     const ceiling = museumPixelRatio();
     const current = renderer.getPixelRatio();
-    const floor = Math.min(ceiling, 0.65);
+    // 桌面不低于每个 CSS 像素一个渲染像素；仅调整额外的超采样。
+    const floor = Math.min(ceiling, 1);
     let next = current;
     if (qualitySamples >= 8 && averageMs > 25) {
         next = Math.max(floor, current * 0.85);
