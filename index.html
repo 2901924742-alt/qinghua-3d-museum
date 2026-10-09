@@ -222,7 +222,7 @@ const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHei
 camera.position.set(0, 0.8, 5);
 
 /* ================= 渲染器 ================= */
-// 触屏保留清晰度；桌面至少保留 1 倍渲染，仅按实测帧间隔调整超采样。
+// 手机保留原设置；桌面主体保持清晰，掉帧时只调整柔和雾气的离屏分辨率。
 const desktopRenderQuery = window.matchMedia('(hover: hover) and (pointer: fine)');
 function isDesktopRenderer() {
     return desktopRenderQuery.matches;
@@ -231,10 +231,11 @@ function museumPixelRatio() {
     const nativeRatio = Math.min(window.devicePixelRatio || 1, 3);
     const area = window.innerWidth * window.innerHeight;
     return isDesktopRenderer()
-        ? Math.min(nativeRatio, Math.max(1, Math.sqrt(2600000 / area)))
+        ? Math.min(Math.max(nativeRatio, 1.25), 2, Math.max(1, Math.sqrt(8500000 / area)))
         : Math.min(nativeRatio, Math.max(1, Math.sqrt(4000000 / area)));
 }
-const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:isDesktopRenderer() ? 'high-performance' : 'default' });
+// 桌面已有更高的画布采样，避免再叠加整屏多重采样的显存带宽开销；手机保持原抗锯齿。
+const renderer = new THREE.WebGLRenderer({ antialias:!isDesktopRenderer(), powerPreference:isDesktopRenderer() ? 'high-performance' : 'default' });
 renderer.setPixelRatio(museumPixelRatio());
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -358,6 +359,7 @@ roughness: 0.8
 })
 );
 podium.position.y = -1.05;
+podium.layers.enable(1);
 scene.add(podium);
 
 /* ================= 粒子 ================= */
@@ -403,9 +405,63 @@ function createStarTexture() {
 }
 
 const starTexture = createStarTexture();
+// 桌面星空不受灯光影响。将固定的色调映射一次烘焙到原星图，避免每帧逐像素重复计算。
+function bakeDesktopStarColors(texture) {
+    const canvas = texture.image;
+    const ctx = canvas.getContext('2d');
+    const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = pixels.data;
+    const linear = new Float32Array(256);
+    for (let i = 0; i < 256; i++) {
+        const c = i / 255;
+        linear[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    }
+    const cache = new Map();
+    const fit = x => (x * (x + 0.0245786) - 0.000090537) / (x * (0.983729 * x + 0.432951) + 0.238081);
+    const encode = x => {
+        x = Math.max(0, Math.min(1, x));
+        return Math.round(255 * (x <= 0.0031308 ? x * 12.92 : 1.055 * Math.pow(x, 1 / 2.4) - 0.055));
+    };
+    for (let i = 0; i < data.length; i += 4) {
+        const key = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
+        let mapped = cache.get(key);
+        if (mapped === undefined) {
+            const r = linear[data[i]] * renderer.toneMappingExposure / 0.6;
+            const g = linear[data[i + 1]] * renderer.toneMappingExposure / 0.6;
+            const b = linear[data[i + 2]] * renderer.toneMappingExposure / 0.6;
+            const x = fit(0.59719 * r + 0.35458 * g + 0.04823 * b);
+            const y = fit(0.07600 * r + 0.90834 * g + 0.01566 * b);
+            const z = fit(0.02840 * r + 0.13383 * g + 0.83777 * b);
+            mapped = (encode(1.60475 * x - 0.53108 * y - 0.07367 * z) << 16)
+                | (encode(-0.10208 * x + 1.10813 * y - 0.00605 * z) << 8)
+                | encode(-0.00327 * x - 0.07276 * y + 1.07602 * z);
+            cache.set(key, mapped);
+        }
+        data[i] = (mapped >>> 16) & 255;
+        data[i + 1] = (mapped >>> 8) & 255;
+        data[i + 2] = mapped & 255;
+    }
+    ctx.putImageData(pixels, 0, 0);
+    texture.colorSpace = THREE.NoColorSpace;
+    texture.needsUpdate = true;
+}
+if (isDesktopRenderer()) bakeDesktopStarColors(starTexture);
+const starMaterial = isDesktopRenderer() ? new THREE.ShaderMaterial({
+    uniforms: { uStars: { value: starTexture } },
+    vertexShader: `
+        varying vec2 vUv;
+        void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+    `,
+    fragmentShader: `
+        uniform sampler2D uStars;
+        varying vec2 vUv;
+        void main() { gl_FragColor = texture2D(uStars, vUv); }
+    `,
+    side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false
+}) : new THREE.MeshBasicMaterial({ map: starTexture, side: THREE.BackSide, depthWrite: false, fog: false });
 const starSphere = new THREE.Mesh(
     new THREE.SphereGeometry(500, 64, 64),
-    new THREE.MeshBasicMaterial({ map: starTexture, side: THREE.BackSide, depthWrite: false, fog: false })
+    starMaterial
 );
 scene.add(starSphere);
 
@@ -496,7 +552,92 @@ batchedMistMaterial.onBeforeCompile = shader => {
 const batchedMist = new THREE.InstancedMesh(mistGeometry, batchedMistMaterial, mistClouds.length);
 batchedMist.renderOrder = -3;
 batchedMist.frustumCulled = false;
-if (useInstancedMist) scene.add(batchedMist);
+
+// 桌面只把柔和雾气放到低分辨率缓冲；模型、粒子、星空及黑洞仍按主体分辨率绘制。
+// 深度预绘保留雾气与瓷器、展台、黑洞中心的前后遮挡关系。
+let desktopMistScale = 0.5;
+const desktopMistScene = useInstancedMist ? new THREE.Scene() : null;
+const desktopMistTarget = useInstancedMist ? new THREE.WebGLRenderTarget(1, 1, {
+    minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+    format: THREE.RGBAFormat, depthBuffer: true, stencilBuffer: false
+}) : null;
+const mistDepthMaterial = useInstancedMist ? new THREE.MeshDepthMaterial({
+    colorWrite: false, depthWrite: true, depthTest: true
+}) : null;
+const mistRestoreColor = new THREE.Color();
+if (useInstancedMist) {
+    renderer.info.autoReset = false;
+    desktopMistScene.fog = scene.fog;
+    desktopMistScene.add(batchedMist);
+    const composite = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+        uniforms: { uMist: { value: desktopMistTarget.texture } },
+        vertexShader: `
+            varying vec2 vUv;
+            void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
+        `,
+        fragmentShader: `
+            uniform sampler2D uMist;
+            varying vec2 vUv;
+            void main() {
+                vec4 mist = texture2D(uMist, vUv);
+                if (mist.a < 0.0001) discard;
+                // 缓冲中是预乘的线性颜色，先还原，再以主画面的色调与色彩空间合成。
+                gl_FragColor = vec4(mist.rgb / max(mist.a, 0.0001), mist.a);
+                #include <tonemapping_fragment>
+                #include <colorspace_fragment>
+                #include <premultiplied_alpha_fragment>
+            }
+        `,
+        transparent: true, premultipliedAlpha: true,
+        depthWrite: false, depthTest: false, fog: false
+    }));
+    composite.frustumCulled = false;
+    composite.renderOrder = -3;
+    scene.add(composite);
+}
+function resizeDesktopMistTarget() {
+    if (!desktopMistTarget) return;
+    desktopMistTarget.setSize(
+        Math.max(1, Math.round(window.innerWidth * desktopMistScale)),
+        Math.max(1, Math.round(window.innerHeight * desktopMistScale))
+    );
+}
+resizeDesktopMistTarget();
+function renderMuseum() {
+    if (!useInstancedMist) {
+        renderer.render(scene, camera);
+        return;
+    }
+    renderer.info.reset();
+    const previousTarget = renderer.getRenderTarget();
+    const previousAutoClear = renderer.autoClear;
+    const previousLayers = camera.layers.mask;
+    const previousBackground = scene.background;
+    const previousOverride = scene.overrideMaterial;
+    renderer.getClearColor(mistRestoreColor);
+    const previousAlpha = renderer.getClearAlpha();
+    try {
+        renderer.setRenderTarget(desktopMistTarget);
+        renderer.autoClear = false;
+        renderer.setClearColor(0x000000, 0);
+        renderer.clear(true, true, false);
+        scene.background = null;
+        scene.overrideMaterial = mistDepthMaterial;
+        camera.layers.set(1);
+        renderer.render(scene, camera);
+        scene.overrideMaterial = previousOverride;
+        camera.layers.mask = previousLayers;
+        renderer.render(desktopMistScene, camera);
+    } finally {
+        scene.background = previousBackground;
+        scene.overrideMaterial = previousOverride;
+        camera.layers.mask = previousLayers;
+        renderer.autoClear = previousAutoClear;
+        renderer.setClearColor(mistRestoreColor, previousAlpha);
+        renderer.setRenderTarget(previousTarget);
+    }
+    renderer.render(scene, camera);
+}
 const sortedMistClouds = [...mistClouds];
 function updateMistInstances() {
     if (!useInstancedMist) return;
@@ -554,6 +695,7 @@ const blackHoleCore = new THREE.Mesh(
     new THREE.SphereGeometry(1.78, 40, 24),
     new THREE.MeshBasicMaterial({color: 0x000000, fog: false})
 );
+blackHoleCore.layers.enable(1);
 blackHoleGroup.add(blackHoleCore);
 const accretionMaterial = new THREE.ShaderMaterial({
     uniforms: flowUniforms,
@@ -613,14 +755,25 @@ const blackHoleMaterial = new THREE.ShaderMaterial({
             p = mat2(c, -s, s, c) * p;
             vec2 direction = p / max(radius, 0.001);
             float turbulence = flow(direction, radius * 2.0);
+            ${useInstancedMist ? `
+            // 上下使用相同的宽度与亮度分布，在吸积盘两端连续汇合。
+            float curvature = smoothstep(0.0, 0.50, abs(direction.y));
+            float edgeOn = 1.0 - uInclination;
+            float bend = abs(direction.y);
+            float lensRadius = 0.955 + 0.105 * bend * edgeOn;
+            float width = mix(0.045, 0.072, curvature * edgeOn);
+            width = max(width, fwidth(radius) * 1.5);
+            float strength = 0.90 * mix(0.30, 1.0, edgeOn);
+            ` : `
+            // 手机保留已经合适的光环参数和绘制开销。
             float upper = smoothstep(-0.25, 0.50, direction.y);
             float edgeOn = 1.0 - uInclination;
-            // 上侧弯曲像更宽，下侧更窄；在盘的两端连续过渡，避免拼接双圈。
             float bend = max(direction.y, 0.0);
             float lensRadius = 0.955 + 0.105 * bend * edgeOn;
             float width = mix(0.038, 0.072, upper * edgeOn);
             width = max(width, fwidth(radius) * 1.5);
             float strength = mix(0.32, 0.90, upper) * mix(0.30, 1.0, edgeOn);
+            `}
             float frequency = radius * 75.0 + turbulence * 12.0;
             float detail = 1.0 - smoothstep(0.35, 1.4, fwidth(frequency));
             float filament = 0.88 + 0.12 * sin(frequency) * detail;
@@ -629,7 +782,7 @@ const blackHoleMaterial = new THREE.ShaderMaterial({
             // 光子环靠近暗区并弱化，避免明亮的独立圆圈压过弯曲光带。
             float photon = band(radius - 0.905, max(0.016, fwidth(radius) * 1.5)) * 0.10;
             float halo = band(radius - lensRadius, 0.15) * strength * 0.07;
-            // 下侧是一条更细、更弱的连续光带，中心周围仍保留完整光子环。
+            // 两侧保留相同光带质感，水平明暗差与空间角度仍然变化。
             float beaming = 1.0 - direction.x * 0.38 * edgeOn;
             vec3 warm = mix(vec3(1.0, 0.65, 0.30), vec3(1.0, 0.94, 0.79), clamp(beaming - 0.40, 0.0, 1.0));
             vec3 light = warm * arc * beaming
@@ -692,6 +845,7 @@ loader.load("./qinghuaci.glb",(gltf)=>{
     // 保留原始颜色、贴图和 IOR；修正瓷器的金属度及被关闭的釉面反射。
     model.traverse((object) => {
         if (!object.isMesh) return;
+        object.layers.enable(1);
         const materials = Array.isArray(object.material) ? object.material : [object.material];
         materials.forEach((material) => {
             if (!material.isMeshStandardMaterial) return;
@@ -746,6 +900,8 @@ let fastQualityWindows = 0;
 function resetRenderQuality() {
     renderer.setPixelRatio(museumPixelRatio());
     renderer.setSize(window.innerWidth, window.innerHeight);
+    desktopMistScale = 0.5;
+    resizeDesktopMistTarget();
     previousFrameAt = previousRafAt = qualityWindowAt = 0;
     qualitySamples = qualityTotalMs = fastQualityWindows = 0;
 }
@@ -763,10 +919,10 @@ function monitorDesktopQuality(timestamp) {
     qualityTotalMs += gap;
     if (timestamp - qualityWindowAt < 2000) return;
     const averageMs = qualityTotalMs / Math.max(qualitySamples, 1);
-    const ceiling = museumPixelRatio();
-    const current = renderer.getPixelRatio();
-    // 桌面不低于每个 CSS 像素一个渲染像素；仅调整额外的超采样。
-    const floor = Math.min(ceiling, 1);
+    const ceiling = 0.5;
+    const current = desktopMistScale;
+    // 主体画布保持清晰；仅降低本来就柔和的雾气计算量。
+    const floor = 0.25;
     let next = current;
     if (qualitySamples >= 8 && averageMs > 25) {
         next = Math.max(floor, current * 0.85);
@@ -780,9 +936,9 @@ function monitorDesktopQuality(timestamp) {
     } else {
         fastQualityWindows = 0;
     }
-    if (Math.abs(next - current) > 0.02) {
-        renderer.setPixelRatio(next);
-        renderer.setSize(window.innerWidth, window.innerHeight);
+    if (Math.abs(next - current) > 0.005) {
+        desktopMistScale = next;
+        resizeDesktopMistTarget();
     }
     qualityWindowAt = timestamp;
     qualitySamples = qualityTotalMs = 0;
@@ -828,7 +984,7 @@ function animate(timestamp = 0){
     updateBlackHoleView();
     blackHoleMaterial.uniforms.uTime.value = performance.now() * 0.001;
 
-    renderer.render(scene, camera);
+    renderMuseum();
 }
 animate();
 
