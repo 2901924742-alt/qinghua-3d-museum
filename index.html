@@ -80,6 +80,11 @@ opacity:0;
 pointer-events:none;
 }
 
+.info-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:4px;}
+#hideBtn{flex-shrink:0;padding:8px 10px;min-height:36px;border:1px solid rgba(255,255,255,.2);border-radius:10px;background:rgba(255,255,255,.06);color:rgba(255,255,255,.85);font-size:12px;cursor:pointer;}
+#hideBtn:hover{background:rgba(255,255,255,.15);}
+#hideBtn:focus-visible,#restoreBtn:focus-visible{outline:2px solid rgba(255,255,255,.8);outline-offset:3px;}
+
 .tip{
 position:fixed;
 right:30px;
@@ -153,7 +158,7 @@ background:rgba(255,255,255,.15);
 <div class="sub">TJCM PORCELAIN DIGITAL MUSEUM</div>
 
 <div class="info" id="infoBox">
-<h2>元代青花瓷</h2>
+<div class="info-header"><h2>元代青花瓷</h2><button id="hideBtn" type="button" aria-controls="infoBox" aria-expanded="true">隐藏介绍</button></div>
 <p>
 制作人：屈劲舟（上滑隐藏文字） <br><br>
 
@@ -170,7 +175,7 @@ background:rgba(255,255,255,.15);
 
 <div class="tip">PS:屈劲舟提示 松手后切换为自动旋转 |  星空秘境 · 青花奇观 </div>
 
-<button id="restoreBtn">恢复介绍</button>
+<button id="restoreBtn" type="button" aria-controls="infoBox" aria-expanded="false">恢复介绍</button>
 
 <script>
 // 独立于模块运行，依赖加载失败时也能给出提示并重新加载。
@@ -209,7 +214,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 /* ================= 场景 ================= */
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x050505);
-// 保留近景粒子的雾化层次，主体和远景分别关闭材质雾效。
+// 主体与展台使用同一远景雾效，天空和黑洞独立于雾化层。
 scene.fog = new THREE.Fog(0x050505, 12, 40);
 
 /* ================= 相机 ================= */
@@ -217,8 +222,14 @@ const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHei
 camera.position.set(0, 0.8, 5);
 
 /* ================= 渲染器 ================= */
+// 手机保留最高 3 倍像素；大屏按总像素预算控制开销，不随 DPR 无限放大。
+function museumPixelRatio() {
+    const nativeRatio = Math.min(window.devicePixelRatio || 1, 3);
+    const pixelBudget = 4000000;
+    return Math.min(nativeRatio, Math.max(1, Math.sqrt(pixelBudget / (window.innerWidth * window.innerHeight))));
+}
 const renderer = new THREE.WebGLRenderer({ antialias:true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 3));
+renderer.setPixelRatio(museumPixelRatio());
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -406,6 +417,24 @@ const starDust = new THREE.Points(starDustGeo, new THREE.PointsMaterial({ color:
 starDust.renderOrder = -2;
 scene.add(starDust);
 
+// 分布到展馆外围的漂浮粒子：拉远以后，四周仍有宇宙尘埃。
+const distantParticleGeo = new THREE.BufferGeometry();
+const distantPositions = [];
+for (let i = 0; i < 1500; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const vertical = Math.random() * 2 - 1;
+    const radius = 8 + Math.cbrt(Math.random()) * 62;
+    const horizontal = Math.sqrt(1 - vertical * vertical);
+    distantPositions.push(Math.cos(angle) * horizontal * radius, vertical * radius, Math.sin(angle) * horizontal * radius);
+}
+distantParticleGeo.setAttribute('position', new THREE.Float32BufferAttribute(distantPositions, 3));
+const distantParticles = new THREE.Points(distantParticleGeo, new THREE.PointsMaterial({
+    size: 0.09, color: 0xdce2ea, transparent: true, opacity: 0.35,
+    depthWrite: false, fog: false, blending: THREE.AdditiveBlending
+}));
+distantParticles.renderOrder = -1;
+scene.add(distantParticles);
+
 /* ================= 漂浮雾气（与星空、黑洞同时保留） ================= */
 function createMistTexture() {
     const canvas = document.createElement('canvas');
@@ -428,7 +457,7 @@ const mistGeometry = new THREE.PlaneGeometry(1, 1);
 for (let i = 0; i < 14; i++) {
     const material = new THREE.MeshBasicMaterial({
         map: mistTexture, color: 0xdbe1e9, transparent: true, opacity: 0.48,
-        depthWrite: false, fog: true, side: THREE.DoubleSide
+        depthWrite: false, fog: true, side: THREE.FrontSide
     });
     const cloud = new THREE.Mesh(mistGeometry, material);
     const angle = i / 14 * Math.PI * 2;
@@ -443,12 +472,77 @@ for (let i = 0; i < 14; i++) {
     mistClouds.push(cloud);
 }
 
-/* ================= 🕳️ 远景黑洞：薄吸积盘与弯曲光带 ================= */
-// 视线朝向的程序化光效：艺术化呈现引力透镜，不做逐光线物理模拟。
-// 单个平面取代球体和粗圆环，手机上也无需后处理或外部贴图。
+/* ================= 🕳️ 黑洞：空间吸积盘与连续透镜光带 ================= */
+// 薄盘保留固定的空间朝向；黑色中心实际遮挡背面，环绕相机时有透视变化。
+// 透镜光带仍是艺术化近似，不使用昂贵的逐像素光线步进或后处理。
 const blackHoleGroup = new THREE.Group();
+function createFlowTexture() {
+    const size = 128, data = new Uint8Array(size * size * 4);
+    let seed = 8137;
+    for (let i = 0; i < size * size; i++) {
+        seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+        const value = (seed >>> 0) & 255;
+        data.set([value, value, value, 255], i * 4);
+    }
+    const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.magFilter = texture.minFilter = THREE.LinearFilter;
+    texture.needsUpdate = true;
+    return texture;
+}
+const flowTexture = createFlowTexture();
+const flowUniforms = { uTime: { value: 0 }, uFlow: { value: flowTexture } };
+const flowShader = `
+    uniform float uTime;
+    uniform sampler2D uFlow;
+    float flow(vec2 direction, float radius) {
+        float a = uTime * 0.045;
+        direction = mat2(cos(a), -sin(a), sin(a), cos(a)) * direction;
+        // 用单位圆坐标采样，首尾同一点，避免 atan 的 -π / π 接缝。
+        return texture2D(uFlow, direction * 0.035 + vec2(radius * 0.027, 0.0)).r * 0.65
+             + texture2D(uFlow, direction * 0.08 + vec2(radius * 0.053, 0.37)).r * 0.35;
+    }
+    float band(float d, float width) { return exp(-d * d / (width * width)); }
+`;
+const blackHoleCore = new THREE.Mesh(
+    new THREE.SphereGeometry(1.78, 40, 24),
+    new THREE.MeshBasicMaterial({color: 0x000000, fog: false})
+);
+blackHoleGroup.add(blackHoleCore);
+const accretionMaterial = new THREE.ShaderMaterial({
+    uniforms: flowUniforms,
+    vertexShader: `
+        varying vec2 vDisk;
+        void main() {
+            vDisk = position.xy;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `,
+    fragmentShader: `
+        precision highp float;
+        varying vec2 vDisk;
+        ${flowShader}
+        void main() {
+            float radius = length(vDisk);
+            vec2 direction = vDisk / max(radius, 0.001);
+            float turbulence = flow(direction, radius);
+            float edge = smoothstep(1.85, 2.15, radius) * (1.0 - smoothstep(4.7, 5.9, radius));
+            float stripes = 0.82 + 0.18 * sin(radius * 11.0 + turbulence * 2.5);
+            float emission = edge * (0.60 + turbulence * 0.75) * stripes / pow(max(radius * 0.5, 1.0), 1.5);
+            vec3 color = mix(vec3(0.60, 0.37, 0.16), vec3(1.0, 0.92, 0.73), clamp(emission * 1.8, 0.0, 1.0));
+            gl_FragColor = vec4(color * emission * 1.75, edge * 0.95);
+            #include <tonemapping_fragment>
+            #include <colorspace_fragment>
+        }
+    `,
+    transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide,
+    forceSinglePass: true
+});
+const accretionDisk = new THREE.Mesh(new THREE.RingGeometry(1.85, 5.9, 128, 8), accretionMaterial);
+accretionDisk.rotation.set(Math.PI / 2 + 0.14, 0, 0.06);
+blackHoleGroup.add(accretionDisk);
 const blackHoleMaterial = new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 } },
+    uniforms: flowUniforms,
     vertexShader: `
         varying vec2 vUv;
         void main() {
@@ -458,85 +552,34 @@ const blackHoleMaterial = new THREE.ShaderMaterial({
     `,
     fragmentShader: `
         precision highp float;
-        uniform float uTime;
         varying vec2 vUv;
-
-        float hash(vec2 p) {
-            return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-        }
-        float noise(vec2 p) {
-            vec2 i = floor(p), f = fract(p);
-            f = f * f * (3.0 - 2.0 * f);
-            return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
-                       mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0)), f.x), f.y);
-        }
-        float wisps(vec2 p) {
-            return noise(p) * 0.55 + noise(p * 2.03) * 0.28 + noise(p * 4.07) * 0.17;
-        }
-        float band(float d, float width) {
-            return exp(-d * d / (width * width));
-        }
+        ${flowShader}
         void main() {
-            vec2 p = (vUv - 0.5) * vec2(7.0, 4.0);
-            // 轻微倾斜的视角，避免过于机械的对称图案。
-            p = mat2(0.9982, -0.06, 0.06, 0.9982) * p;
-            vec2 shadowPoint = p - vec2(0.0, 0.12);
-            float radius = length(shadowPoint);
-            float shadow = 1.0 - smoothstep(0.84, 0.90, radius);
-            float time = uTime * 0.12;
-
-            // 极薄的投影吸积盘，前半部横穿黑洞下方，后半部被中心遮挡。
-            vec2 diskPoint = vec2(p.x, (p.y + 0.22) / 0.085);
-            float diskRadius = length(diskPoint);
-            float diskAngle = atan(diskPoint.y, diskPoint.x);
-            float diskMask = smoothstep(0.91, 1.10, diskRadius)
-                           * (1.0 - smoothstep(2.35, 2.95, diskRadius));
-            float flow = wisps(vec2(diskRadius * 12.0, diskAngle * 3.0 - time));
-            float striation = 0.84 + 0.16 * sin(diskRadius * 34.0 + flow * 4.0 - time * 2.0);
-            float disk = diskMask * (0.45 + flow * 0.75) * striation
-                       / pow(max(diskRadius, 1.0), 1.5);
-            float front = 1.0 - smoothstep(-0.24, -0.20, p.y);
-            disk *= mix(1.0 - shadow, 1.0, front);
-
-            // 上方较宽、下方较弱的弯曲光带，表现背面吸积盘的透镜像。
-            float angle = atan(shadowPoint.y, shadowPoint.x);
-            float arcNoise = wisps(vec2(radius * 22.0, angle * 5.0 - time));
-            // 连续的角向亮度：左右两侧不会因上、下半环遮罩衔接而断开。
-            float arcStrength = mix(0.34, 1.0,
-                0.5 + 0.5 * shadowPoint.y / max(radius, 0.001));
-            float arc = (band(radius - 1.02, 0.09) * 0.90
-                       + band(radius - 1.16, 0.15) * 0.22)
-                       * arcStrength * (0.55 + arcNoise * 0.70);
+            vec2 p = (vUv - 0.5) * 3.5;
+            float radius = length(p);
+            if (radius > 1.65 || radius < 0.88) discard;
+            vec2 direction = p / max(radius, 0.001);
+            float turbulence = flow(direction, radius * 2.0);
+            float strength = mix(0.52, 1.0, 0.5 + 0.5 * direction.y);
+            float arc = (band(radius - 1.02, 0.09) * 0.90 + band(radius - 1.16, 0.15) * 0.22)
+                      * strength * (0.65 + turbulence * 0.55);
             float photon = band(radius - 0.91, 0.022) * 0.46;
             float halo = band(radius - 1.06, 0.29) * 0.075;
-            halo += band(p.y + 0.22, 0.12)
-                  * (1.0 - smoothstep(2.1, 3.2, abs(p.x))) * 0.055;
-
-            // 克制的暖白与淡金色，不使用红橙色粗环或彩色星云。
-            float asymmetry = 1.0 + 0.18 * clamp(-p.x, -1.0, 1.0);
-            vec3 diskColor = mix(vec3(0.60, 0.37, 0.16), vec3(1.0, 0.92, 0.73),
-                                 clamp(disk * 1.8, 0.0, 1.0));
-            vec3 light = (diskColor * disk * 1.75
-                        + vec3(1.0, 0.84, 0.57) * arc * 0.95
-                        + vec3(1.0, 0.97, 0.87) * photon
-                        + vec3(0.47, 0.32, 0.17) * halo) * asymmetry;
-            light *= 0.97 + 0.03 * sin(uTime * 0.55);
-            float emission = max(max(light.r, light.g), light.b);
-            float glowAlpha = clamp(emission * 1.8, 0.0, 1.0);
-            float alpha = max(shadow, glowAlpha);
-            // 普通透明混合让黑色中心遮住星点，外围柔光平滑融入背景。
-            vec3 color = light / max(alpha, 0.001);
-            gl_FragColor = vec4(color, alpha);
+            // 不切分上下半环；下方光带保持连续，亮度柔和过渡。
+            vec3 light = vec3(1.0, 0.84, 0.57) * arc * 0.95
+                       + vec3(1.0, 0.97, 0.87) * photon + vec3(0.47, 0.32, 0.17) * halo;
+            light *= (1.0 + 0.18 * clamp(-p.x, -1.0, 1.0)) * (0.97 + 0.03 * sin(uTime * 0.55));
+            float alpha = clamp(max(max(light.r, light.g), light.b) * 1.8, 0.0, 1.0);
+            gl_FragColor = vec4(light / max(alpha, 0.001), alpha);
             #include <tonemapping_fragment>
             #include <colorspace_fragment>
         }
     `,
-    transparent: true,
-    depthWrite: false,
-    fog: false,
-    side: THREE.DoubleSide
+    transparent: true, depthWrite: false,
+    fog: false, side: THREE.FrontSide
 });
-const blackHoleVisual = new THREE.Mesh(new THREE.PlaneGeometry(14, 8), blackHoleMaterial);
+const blackHoleVisual = new THREE.Mesh(new THREE.PlaneGeometry(7, 7), blackHoleMaterial);
+blackHoleVisual.renderOrder = 1;
 blackHoleGroup.add(blackHoleVisual);
 function updateBlackHoleLayout() {
     const narrow = window.innerWidth < 560;
@@ -560,7 +603,8 @@ loader.load("./qinghuaci.glb",(gltf)=>{
             material.metalness = 0;
             material.roughness = 0.38;
             if ('specularIntensity' in material) material.specularIntensity = 1;
-            material.fog = false;
+            // 与展台使用相同的远景雾效，正常观看距离不会雾化。
+            material.fog = true;
             if (material.map) {
                 material.map.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
                 material.map.needsUpdate = true;
@@ -609,6 +653,8 @@ function animate(){
     starSphere.rotation.y += delta * 0.0015;
     starSphere.rotation.x += delta * 0.00048;
     starDust.rotation.y += delta * 0.003;
+    distantParticles.rotation.y += delta * 0.006;
+    distantParticles.position.y = Math.sin(elapsed * 0.12) * 0.35;
     mistClouds.forEach((cloud) => {
         const phase = cloud.userData.phase;
         cloud.position.copy(cloud.userData.origin);
@@ -618,8 +664,8 @@ function animate(){
         cloud.material.opacity = 0.43 + Math.sin(elapsed * 0.2 + phase) * 0.08;
     });
     
-    // 始终朝向当前视线；仅纹理流动，不让光带像行星环一样翻转。
-    blackHoleGroup.quaternion.copy(camera.quaternion);
+    // 只有透镜光带随视线转动，实体中心和薄盘保留空间深度。
+    blackHoleVisual.lookAt(camera.position);
     blackHoleMaterial.uniforms.uTime.value = performance.now() * 0.001;
 
     renderer.render(scene, camera);
@@ -630,7 +676,7 @@ animate();
 window.addEventListener("resize",()=>{
     camera.aspect = window.innerWidth/window.innerHeight;
     camera.updateProjectionMatrix();
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 3));
+    renderer.setPixelRatio(museumPixelRatio());
     renderer.setSize(window.innerWidth,window.innerHeight);
     updateBlackHoleLayout();
 });
@@ -638,16 +684,30 @@ window.addEventListener("resize",()=>{
 /* ================= UI交互（保留） ================= */
 const infoBox = document.getElementById("infoBox");
 const restoreBtn = document.getElementById("restoreBtn");
+const hideBtn = document.getElementById("hideBtn");
+function hideInfo() {
+    infoBox.classList.add("hide");
+    restoreBtn.style.display = "block";
+    hideBtn.setAttribute('aria-expanded', 'false');
+    restoreBtn.setAttribute('aria-expanded', 'false');
+}
+function restoreInfo() {
+    infoBox.classList.remove("hide");
+    restoreBtn.style.display = "none";
+    hideBtn.setAttribute('aria-expanded', 'true');
+    restoreBtn.setAttribute('aria-expanded', 'true');
+}
+hideBtn.addEventListener('click', () => { hideInfo(); restoreBtn.focus({preventScroll:true}); });
 let startY = 0;
 infoBox.addEventListener("touchstart",(e)=>{ startY = e.touches[0].clientY; });
 infoBox.addEventListener("touchmove",(e)=>{
     let diff = e.touches[0].clientY - startY;
     if(diff < -80){
-        infoBox.classList.add("hide");
-        restoreBtn.style.display="block";
+        hideInfo();
     }
 });
 infoBox.addEventListener("mousedown",(e)=>{
+    if (e.target.closest("button")) return;
     startY = e.clientY;
     const cleanup = () => {
         document.removeEventListener('mousemove', move);
@@ -657,8 +717,7 @@ infoBox.addEventListener("mousedown",(e)=>{
     const move = (ev)=>{
         let diff = ev.clientY - startY;
         if(diff < -80){
-            infoBox.classList.add("hide");
-            restoreBtn.style.display="block";
+            hideInfo();
             cleanup();
         }
     };
@@ -667,8 +726,8 @@ infoBox.addEventListener("mousedown",(e)=>{
     window.addEventListener('blur', cleanup);
 });
 restoreBtn.addEventListener("click",()=>{
-    infoBox.classList.remove("hide");
-    restoreBtn.style.display="none";
+    restoreInfo();
+    hideBtn.focus({preventScroll:true});
 });
 </script>
 
