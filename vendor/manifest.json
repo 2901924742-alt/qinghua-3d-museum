@@ -1,0 +1,22 @@
+[
+  {
+    "file": "three.module.js",
+    "bytes": 1272972,
+    "sha256": "76DEA8151BC9352AEF3528B4262E249B2604F62543828328DB978D060D61A495"
+  },
+  {
+    "file": "controls/OrbitControls.js",
+    "bytes": 29868,
+    "sha256": "5A44A9E86A2A0FB11933EED69BC2CD33C76A496854C1AED6ED776EFA87D7B064"
+  },
+  {
+    "file": "loaders/GLTFLoader.js",
+    "bytes": 108522,
+    "sha256": "D073B438E6A07E1359741DD5D6C76C953420CC0D4FD84EB1BDDE94315540E6A3"
+  },
+  {
+    "file": "utils/BufferGeometryUtils.js",
+    "bytes": 31906,
+    "sha256": "9BE041E96308775D00E2695CC607645B9A9B64FD7C0E759DD8F7C00A8D92BECB"
+  }
+]
