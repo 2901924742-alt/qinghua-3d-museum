@@ -66,11 +66,13 @@ width:380px;
 padding:26px;
 background:rgba(255,255,255,.05);
 border:1px solid rgba(255,255,255,.08);
+-webkit-backdrop-filter:blur(18px);
 backdrop-filter:blur(18px);
 border-radius:24px;
 color:white;
 z-index:10;
-transition:transform 0.5s ease,opacity 0.5s ease;
+visibility:visible;
+transition:transform 0.5s ease,opacity 0.5s ease,visibility 0s;
 touch-action:none;
 }
 
@@ -78,6 +80,8 @@ touch-action:none;
 transform:translateY(140%);
 opacity:0;
 pointer-events:none;
+visibility:hidden;
+transition-delay:0s,0s,0.5s;
 }
 
 .info-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:4px;}
@@ -109,6 +113,7 @@ bottom:80px;
 padding:10px 14px;
 background:rgba(255,255,255,.08);
 border:1px solid rgba(255,255,255,.2);
+-webkit-backdrop-filter:blur(10px);
 backdrop-filter:blur(10px);
 border-radius:12px;
 color:white;
@@ -130,7 +135,7 @@ background:rgba(255,255,255,.15);
         top: 18px;
     }
     .sub {
-        font-size: 9px;
+        font-size: 11px;
         top: 54px;
         white-space: nowrap;
     }
@@ -144,6 +149,12 @@ background:rgba(255,255,255,.15);
         font-size: 10px;
         right: 16px;
         bottom: 16px;
+        visibility: hidden;
+        transition: visibility 0s;
+    }
+    .info.hide ~ .tip {
+        visibility: visible;
+        transition-delay: 0.5s;
     }
     #restoreBtn {
         right: 16px;
@@ -975,7 +986,8 @@ function animate(timestamp = 0){
     // 高刷新率电脑最高重绘 60 次/秒；手机沿用当前渲染节奏。
     const interval = 1000 / 60;
     const sinceFrame = timestamp - previousFrameAt;
-    const dueFrames = Math.floor((Math.max(0, sinceFrame) + 0.00001) / interval);
+    // 容忍 rAF 的轻微时间抖动，避免 60Hz 屏幕误跳过一帧。
+    const dueFrames = Math.floor((Math.max(0, sinceFrame) + 2) / interval);
     if (isDesktopRenderer() && previousFrameAt && dueFrames === 0) return;
     previousFrameAt = isDesktopRenderer() && previousFrameAt
         ? previousFrameAt + dueFrames * interval : timestamp;
@@ -1021,13 +1033,21 @@ const infoBox = document.getElementById("infoBox");
 const restoreBtn = document.getElementById("restoreBtn");
 const hideBtn = document.getElementById("hideBtn");
 function hideInfo() {
-    infoBox.classList.add("hide");
     restoreBtn.style.display = "block";
+    if (infoBox.contains(document.activeElement)) restoreBtn.focus({preventScroll:true});
+    infoBox.classList.add("hide");
+    infoBox.setAttribute("inert", "");
+    infoBox.setAttribute("aria-hidden", "true");
+    // 不支持 inert 的旧浏览器也不能聚焦隐藏按钮。
+    hideBtn.disabled = true;
     hideBtn.setAttribute('aria-expanded', 'false');
     restoreBtn.setAttribute('aria-expanded', 'false');
 }
 function restoreInfo() {
     infoBox.classList.remove("hide");
+    infoBox.removeAttribute("inert");
+    infoBox.removeAttribute("aria-hidden");
+    hideBtn.disabled = false;
     restoreBtn.style.display = "none";
     hideBtn.setAttribute('aria-expanded', 'true');
     restoreBtn.setAttribute('aria-expanded', 'true');
