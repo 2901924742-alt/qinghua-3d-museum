@@ -164,11 +164,13 @@ background:rgba(255,255,255,.15);
     }
 }
 </style>
+<link rel="stylesheet" href="./enhancements/museum.css">
 </head>
 
 <body>
 
 <div class="loading" id="loading" role="status" aria-live="polite">
+<svg class="loading-vine" viewBox="0 0 260 88" aria-hidden="true"><path pathLength="1" d="M12 66 C70 78 90 10 126 27 C150 38 123 64 103 48 C87 34 113 20 122 35 M72 54 C46 27 70 12 82 31 M154 48 C174 78 218 70 220 38 C222 7 179 7 181 31 C183 49 210 42 201 26 M221 54 Q243 31 249 48 M151 39 C135 14 160 8 164 30 M146 38 C171 30 177 50 157 53 M146 39 C143 60 120 66 125 46 M145 39 C121 34 123 10 138 25 M146 39 L150 26"/><circle cx="147" cy="39" r="3"/></svg>
 <span id="loadingTitle">正在进入屈劲舟制作的数字展馆doge...</span>
 <span class="loading-status" id="loadingStatus"></span>
 <button id="retryBtn" type="button" hidden>重新加载</button>
@@ -200,19 +202,22 @@ background:rgba(255,255,255,.15);
 
 <script>
 // 独立于模块运行，依赖加载失败时也能给出提示并重新加载。
-window.showMuseumLoadError = function(message) {
+window.showMuseumLoadError = function(message, key) {
     const loading = document.getElementById('loading');
     if (loading.style.display === 'none') return;
     document.getElementById('loadingTitle').textContent = '展馆加载失败';
     document.getElementById('loadingStatus').textContent = message;
     document.getElementById('retryBtn').hidden = false;
+    loading.classList.add('failed');
+    window.museumLoadErrorKey = key;
+    if (key) window.museumEnhancements?.loadError(key);
 };
 document.getElementById('retryBtn').addEventListener('click', () => window.location.reload());
 window.addEventListener('error', (event) => {
     if (event.target instanceof HTMLScriptElement && event.target.type === 'module') {
-        window.showMuseumLoadError('渲染组件未能加载，请检查网络后重试。');
+        window.showMuseumLoadError('渲染组件未能加载，请检查网络后重试。', 'engineError');
     } else if (event.message && document.getElementById('loading').style.display !== 'none') {
-        window.showMuseumLoadError('展馆暂时无法启动，请检查网络和浏览器的 WebGL 支持后重试。');
+        window.showMuseumLoadError('展馆暂时无法启动，请检查网络和浏览器的 WebGL 支持后重试。', 'startupError');
     }
 }, true);
 </script>
@@ -233,6 +238,8 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 /* ================= 场景 ================= */
+let museumExperience = null;
+let exhibitModel = null;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x050505);
 // 主体与展台使用同一远景雾效，天空和黑洞独立于雾化层。
@@ -761,7 +768,7 @@ const accretionMaterial = new THREE.ShaderMaterial({
             float emission = edge * (0.60 + turbulence * 0.75) * stripes / pow(max(radius * 0.5, 1.0), 1.5);
             float beaming = 1.0 - direction.x * 0.36 * (1.0 - uInclination);
             float heat = clamp((5.9 - radius) / 3.6, 0.0, 1.0);
-            vec3 color = mix(vec3(0.68, 0.32, 0.10), vec3(1.0, 0.94, 0.80), heat * beaming);
+            vec3 color = mix(vec3(0.10, 0.28, 0.68), vec3(0.84, 0.94, 1.0), heat * beaming);
             gl_FragColor = vec4(color * emission * beaming * 1.9, edge * 0.95);
             #include <tonemapping_fragment>
             #include <colorspace_fragment>
@@ -814,9 +821,9 @@ const blackHoleMaterial = new THREE.ShaderMaterial({
             float halo = band(radius - lensRadius, 0.15) * strength * 0.07;
             // 两侧保留相同光带质感，水平明暗差与空间角度仍然变化。
             float beaming = 1.0 - direction.x * 0.38 * edgeOn;
-            vec3 warm = mix(vec3(1.0, 0.65, 0.30), vec3(1.0, 0.94, 0.79), clamp(beaming - 0.40, 0.0, 1.0));
+            vec3 warm = mix(vec3(0.30, 0.65, 1.0), vec3(0.79, 0.94, 1.0), clamp(beaming - 0.40, 0.0, 1.0));
             vec3 light = warm * arc * beaming
-                       + vec3(1.0, 0.96, 0.84) * photon + vec3(0.47, 0.30, 0.15) * halo;
+                       + vec3(0.84, 0.96, 1.0) * photon + vec3(0.15, 0.30, 0.47) * halo;
             light *= 0.98 + 0.02 * sin(uTime * 0.55);
             // 光带用连续亮度合成，避免除透明度导致轮廓突变。
             gl_FragColor = vec4(light, 1.0);
@@ -907,6 +914,8 @@ loader.load("./qinghuaci.glb",(gltf)=>{
     model.position.y -= minY;
     model.position.y += (-1.05 + 0.28);
     scene.add(model);
+    exhibitModel = model;
+    museumExperience?.ready(model);
     resetViewBtn.disabled = false;
     document.getElementById("loading").style.display="none";
 }, (event) => {
@@ -915,9 +924,13 @@ loader.load("./qinghuaci.glb",(gltf)=>{
     status.textContent = event.lengthComputable && event.total > 0
         ? `模型加载中 ${Math.round(event.loaded / event.total * 100)}%`
         : '正在加载瓷器模型…';
+    window.museumEnhancements?.loading(event.loaded, event.lengthComputable ? event.total : 0);
+    const loadingElement = document.getElementById('loading');
+    loadingElement.classList.toggle('unknown', !event.total);
+    loadingElement.style.setProperty('--draw', event.total > 0 ? event.loaded / event.total : .45);
 }, (error) => {
     console.error('瓷器模型加载失败：', error);
-    window.showMuseumLoadError('瓷器模型未能加载，请检查网络及 qinghuaci.glb 文件后重试。');
+    window.showMuseumLoadError('瓷器模型未能加载，请检查网络及 qinghuaci.glb 文件后重试。', 'modelError');
 });
 
 /* ================= 动画 ================= */
@@ -993,7 +1006,9 @@ function animate(timestamp = 0){
         ? previousFrameAt + dueFrames * interval : timestamp;
     const delta = Math.min(animationClock.getDelta(), 0.1);
     const elapsed = animationClock.elapsedTime;
+    museumExperience?.update(delta);
     controls.update(delta);
+    museumExperience?.afterControls();
     particles.rotation.y += delta * 0.015;
     breathLight.intensity = 0.25 + Math.sin(Date.now()*0.0012)*0.1;
     breathLight.position.x = Math.sin(Date.now()*0.0008)*0.8;
@@ -1084,6 +1099,13 @@ restoreBtn.addEventListener("click",()=>{
     restoreInfo();
     hideBtn.focus({preventScroll:true});
 });
+// Optional enhancements cannot prevent the original museum from loading.
+import('./enhancements/experience.js').then(({createExperience}) => {
+    museumExperience = createExperience({THREE, scene, renderer, camera, controls,
+        renderMuseum: () => renderMuseum(), isDesktop: isDesktopRenderer, hideInfo, restoreInfo});
+    window.museumEnhancements = museumExperience;
+    if (exhibitModel) museumExperience.ready(exhibitModel);
+}).catch(error => console.warn('Museum enhancements unavailable:', error));
 </script>
 
 </body>
