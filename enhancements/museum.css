@@ -7,6 +7,7 @@
 .museum-tools button,.museum-menu button,.museum-panel button,.museum-panel a.download{min-height:44px;padding:10px 14px;border:1px solid rgba(136,177,250,.4);border-radius:12px;font:inherit;font-size:12px;cursor:pointer;text-decoration:none}
 button:focus-visible,a:focus-visible{outline:2px solid var(--ice);outline-offset:3px}
 .museum-tools .mobile-more{display:none}
+.info-header h2{min-width:0;overflow-wrap:anywhere}html[lang=en] #hideBtn{max-width:100px;white-space:normal}
 .museum-menu{position:fixed;right:16px;top:134px;display:grid;gap:8px;padding:10px;border:1px solid #5276b4;border-radius:16px;background:#0e1a30;z-index:26;min-width:155px}
 [hidden]{display:none!important}
 .museum-dialog{border:1px solid #5276b4;border-radius:22px;background:#0c1527;color:var(--paper);margin:auto 28px auto auto;width:min(420px,calc(100% - 40px));max-height:calc(100dvh - 40px);padding:0;box-shadow:0 16px 70px #0008;overflow:hidden}
@@ -22,7 +23,7 @@ button:focus-visible,a:focus-visible{outline:2px solid var(--ice);outline-offset
 .craft-step{position:relative;border-left:1px solid #5276b4;padding:0 0 18px 20px;margin-left:8px}.craft-step:before{content:"";position:absolute;left:-4px;top:9px;width:7px;height:7px;border-radius:50%;background:var(--ice)}
 .craft-step h3{margin:0}.craft-step:last-of-type{padding-bottom:0}
 .hotspots{position:fixed;inset:0;z-index:18;pointer-events:none}
-.hotspot{position:absolute;left:0;top:0;width:44px;height:44px;transform:translate(-50%,-50%);border:0;border-radius:50%;background:transparent;pointer-events:auto;cursor:pointer;color:var(--paper)}
+.hotspot{position:absolute;left:0;top:0;width:44px;height:44px;transform:translate(-50%,-50%);border:0;border-radius:50%;background:transparent;pointer-events:none;color:var(--paper)}
 .hotspot:after{content:"";position:absolute;left:17px;top:17px;width:10px;height:10px;background:var(--ice);border:2px solid white;border-radius:50%;box-shadow:0 0 10px #82b3ff}
 .hotspot span{position:absolute;left:38px;top:9px;white-space:nowrap;background:#101c34df;padding:2px 8px;border:1px solid #6f99dc;border-radius:6px;font-size:11px}
 .hotspot[hidden]{pointer-events:none}

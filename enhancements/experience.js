@@ -7,6 +7,14 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  const reduced=matchMedia('(prefers-reduced-motion: reduce)');
  const dummy=new THREE.Object3D(),tmp=new THREE.Vector3(),tmpNormal=new THREE.Vector3();
  const ui=createUI({controls,hideInfo,restoreInfo,cancelIntro,capture,unwrap});
+ // Let OrbitControls receive every pointer. Activate a hotspot only after a stationary single-pointer tap.
+ const tapPointers=new Map();let multiplePointers=false;
+ renderer.domElement.addEventListener('pointerdown',e=>{if(tapPointers.size===0)multiplePointers=false;tapPointers.set(e.pointerId,{x:e.clientX,y:e.clientY,moved:false});if(tapPointers.size>1)multiplePointers=true;});
+ renderer.domElement.addEventListener('pointermove',e=>{const p=tapPointers.get(e.pointerId);if(p&&Math.hypot(e.clientX-p.x,e.clientY-p.y)>7)p.moved=true;});
+ renderer.domElement.addEventListener('pointercancel',e=>{tapPointers.delete(e.pointerId);multiplePointers=true;});
+ renderer.domElement.addEventListener('pointerup',e=>{const p=tapPointers.get(e.pointerId);tapPointers.delete(e.pointerId);if(!p||p.moved||multiplePointers||e.button!==0||!ui.hotspotsOn||ui.panel)return;
+  const button=ui.buttons.find(b=>{if(b.hidden)return false;const r=b.getBoundingClientRect();return e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom;});button?.click();
+ });
  const initialPosition=controls.position0.clone(),initialTarget=controls.target0.clone();
  function cancelIntro(){
   introCancelled=true;if(!intro)return;controls.enableDamping=intro.damping;controls.autoRotate=intro.auto;intro=null;document.body.classList.remove('museum-opening');
@@ -37,11 +45,11 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
   shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nattribute float motifIndex;').replace('#include <uv_vertex>','#include <uv_vertex>\n#ifdef USE_MAP\nvMapUv.x = (vMapUv.x + motifIndex) / 3.0;\n#endif');
  };
  material.customProgramCacheKey=()=> 'museum-motif-atlas-v1';
- const motifs=new THREE.InstancedMesh(geometry,material,20);motifs.frustumCulled=false;motifs.count=isDesktop()?20:8;scene.add(motifs);
+ const motifs=new THREE.InstancedMesh(geometry,material,20);motifs.name='museum-motifs';motifs.frustumCulled=false;motifs.count=isDesktop()?20:8;scene.add(motifs);
  const seedData=Array.from({length:20},(_,i)=>({x:(i%2?1:-1)*(2.5+(i*1.31%7)),y:-3+(i*1.67%9),z:-9-(i*1.13%8),size:.22+(i%3)*.08,phase:i*1.6}));
  const meteorGeometry=new THREE.BufferGeometry();meteorGeometry.setAttribute('position',new THREE.BufferAttribute(new Float32Array(6),3));
  const meteorMaterial=new THREE.LineBasicMaterial({color:0xc0daff,transparent:true,opacity:0,depthWrite:false,fog:false,toneMapped:false});
- const meteor=new THREE.Line(meteorGeometry,meteorMaterial);meteor.visible=false;meteor.frustumCulled=false;scene.add(meteor);
+ const meteor=new THREE.Line(meteorGeometry,meteorMaterial);meteor.name='museum-meteor';meteor.visible=false;meteor.frustumCulled=false;scene.add(meteor);
  let heavySamples=0,sampleFrames=0,effectsTier=0;
  function setReduced(){if(reduced.matches)cancelIntro();motifs.visible=!reduced.matches&&!pausedEffects;meteor.visible=false;}
  reduced.addEventListener?.('change',setReduced);setReduced();

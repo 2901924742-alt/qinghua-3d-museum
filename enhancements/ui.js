@@ -18,6 +18,7 @@ export function createUI(core) {
  const buttons=hotspots.map((h,i)=>{const b=document.createElement('button');b.type='button';b.className='hotspot';b.hidden=true;b.innerHTML='<span></span>';b.dataset.hotspot=i;layer.append(b);b.addEventListener('click',()=>{selected=i;tab='details';open('explore');});return b;});document.body.append(layer);
  const label=(id,key)=>{$(id).textContent=t(key);};
  function translate() {
+  if(window.museumLoading)window.museumLoading.language=language;
   document.documentElement.lang=language==='zh'?'zh-CN':'en';document.title=t('pageTitle');
   document.querySelector('.title').textContent=t('title');document.querySelector('.sub').textContent=t('sub');
   document.querySelector('.info h2').textContent=t('exhibit');$('infoBox').querySelector('p').innerHTML=language==='zh'?original.intro:introductionEN;
@@ -66,7 +67,7 @@ export function createUI(core) {
    } else {
     knowledge.innerHTML=`<p>${t('unwrapNote')}</p><p id="unwrapStatus" role="status">${t('unwrapLoading')}</p>`;
     // Lazy construction; one GPU readback, then cache the canvas across language changes.
-    setTimeout(()=>{if(panel!=='explore'||tab!=='unwrap')return;try{
+    setTimeout(()=>{if(panel!=='explore'||tab!=='unwrap'||!$('unwrapStatus'))return;try{
      unwrapCanvas ||= core.unwrap();unwrapCanvas.setAttribute('role','img');unwrapCanvas.setAttribute('aria-label',t('unwrapAlt'));
      $('unwrapStatus').remove();$('museumKnowledge').append(unwrapCanvas);
      for(const [key,start,fraction] of [['rim',0,.16],['foot',.83,.17]]){
@@ -96,7 +97,8 @@ export function createUI(core) {
    if(!captured)throw new Error('Capture unavailable');
    let canvas=captured;
    if(poster){
-    let QR;try{QR=await loadQR();}catch{if(token===exportToken)$('exportStatus').textContent=t('qrError');return;}
+    let QR;try{QR=await loadQR();}catch{if(token===exportToken&&panel==='export')$('exportStatus').textContent=t('qrError');return;}
+    if(token!==exportToken||panel!=='export')return;
     const qr=QR(0,'M');qr.addData(canonicalURL,'Byte');qr.make();
     const width=1080, imageHeight=Math.round(captured.height*width/captured.width),header=150,footer=240;
     canvas=document.createElement('canvas');canvas.width=width;canvas.height=header+imageHeight+footer;
@@ -122,6 +124,7 @@ export function createUI(core) {
  ['museumExplore','menuExplore'].forEach(id=>{$(id).onclick=()=>{tab='details';open('explore');};});
  ['museumExport','menuExport'].forEach(id=>{$(id).onclick=()=>open('export');});
  $('museumClose').onclick=close;dialog.addEventListener('cancel',e=>{e.preventDefault();close();});
+ dialog.addEventListener('keydown',e=>{if(e.key!=='Tab')return;const focusable=[...dialog.querySelectorAll('button:not([disabled]),a[href]')].filter(el=>el.getClientRects().length&&!el.hidden);const first=focusable[0],last=focusable.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}});
  dialog.addEventListener('click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close();}});
  document.addEventListener('pointerdown',e=>{if(!menu.contains(e.target)&&!tools.contains(e.target))closeMenu();});
  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!menu.hidden){closeMenu();$('museumMore').focus();}});

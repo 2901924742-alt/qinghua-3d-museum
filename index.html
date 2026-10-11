@@ -210,7 +210,7 @@ window.showMuseumLoadError = function(message, key) {
     document.getElementById('retryBtn').hidden = false;
     loading.classList.add('failed');
     window.museumLoadErrorKey = key;
-    if (key) window.museumEnhancements?.loadError(key);
+    if (key) { window.museumLoading?.error(key); window.museumEnhancements?.loadError(key); }
 };
 document.getElementById('retryBtn').addEventListener('click', () => window.location.reload());
 window.addEventListener('error', (event) => {
@@ -220,6 +220,7 @@ window.addEventListener('error', (event) => {
         window.showMuseumLoadError('展馆暂时无法启动，请检查网络和浏览器的 WebGL 支持后重试。', 'startupError');
     }
 }, true);
+import('./enhancements/loading.js').catch(() => {});
 </script>
 
 <script type="importmap">
@@ -902,7 +903,7 @@ loader.load("./qinghuaci.glb",(gltf)=>{
     const size = box.getSize(new THREE.Vector3());
     const maxSize = Math.max(size.x,size.y,size.z);
     if (!Number.isFinite(maxSize) || maxSize <= 0) {
-        window.showMuseumLoadError('模型尺寸无效，请检查模型文件后重试。');
+        window.showMuseumLoadError('模型尺寸无效，请检查模型文件后重试。', 'modelSizeError');
         return;
     }
     model.scale.setScalar(1.8 / maxSize);
