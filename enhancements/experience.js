@@ -8,13 +8,17 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  const dummy=new THREE.Object3D(),tmp=new THREE.Vector3(),tmpNormal=new THREE.Vector3();
  const ui=createUI({controls,hideInfo,restoreInfo,cancelIntro,capture,unwrap});
  // Let OrbitControls receive every pointer. Activate a hotspot only after a stationary single-pointer tap.
- const tapPointers=new Map();let multiplePointers=false;
- renderer.domElement.addEventListener('pointerdown',e=>{if(tapPointers.size===0)multiplePointers=false;tapPointers.set(e.pointerId,{x:e.clientX,y:e.clientY,moved:false});if(tapPointers.size>1)multiplePointers=true;});
+ const tapPointers=new Map();let multiplePointers=false,pendingHotspot=null;
+ // OrbitControls reconnects a remaining finger with synthetic events. That is not a new tap.
+ renderer.domElement.addEventListener('pointerdown',e=>{if(!e.isTrusted)return;pendingHotspot=null;if(tapPointers.size===0)multiplePointers=false;tapPointers.set(e.pointerId,{x:e.clientX,y:e.clientY,moved:false});if(tapPointers.size>1)multiplePointers=true;});
  renderer.domElement.addEventListener('pointermove',e=>{const p=tapPointers.get(e.pointerId);if(p&&Math.hypot(e.clientX-p.x,e.clientY-p.y)>7)p.moved=true;});
- renderer.domElement.addEventListener('pointercancel',e=>{tapPointers.delete(e.pointerId);multiplePointers=true;});
+ renderer.domElement.addEventListener('pointercancel',e=>{tapPointers.delete(e.pointerId);multiplePointers=true;pendingHotspot=null;});
  renderer.domElement.addEventListener('pointerup',e=>{const p=tapPointers.get(e.pointerId);tapPointers.delete(e.pointerId);if(!p||p.moved||multiplePointers||e.button!==0||!ui.hotspotsOn||ui.panel)return;
-  const button=ui.buttons.find(b=>{if(b.hidden)return false;const r=b.getBoundingClientRect();return e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom;});button?.click();
+  pendingHotspot=ui.buttons.find(b=>{if(b.hidden)return false;const r=b.getBoundingClientRect();return e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom;});
  });
+ // Open on the completed native click; opening during pointerup can retarget a touch's
+ // following compatibility click to the dialog backdrop and immediately close it.
+ renderer.domElement.addEventListener('click',()=>{const button=pendingHotspot;pendingHotspot=null;if(button&&!button.hidden&&ui.hotspotsOn&&!ui.panel)button.click();});
  const initialPosition=controls.position0.clone(),initialTarget=controls.target0.clone();
  function cancelIntro(){
   introCancelled=true;if(!intro)return;controls.enableDamping=intro.damping;controls.autoRotate=intro.auto;intro=null;document.body.classList.remove('museum-opening');
