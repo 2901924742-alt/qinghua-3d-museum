@@ -32,11 +32,12 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  listen(renderer.domElement,'pointerdown',cancelIntro,{capture:true});listen(renderer.domElement,'wheel',cancelIntro,{capture:true,passive:true});
  listen(document.getElementById('resetViewBtn'),'click',cancelIntro,{capture:true});
  listen(document,'visibilitychange',()=>{if(document.hidden)cancelIntro();});
+ listen(document,'keydown',e=>{if(e.key==='Escape')cancelIntro();});
  controls.addEventListener('start',cancelIntro);
  const onControlsEnd=()=>{if(ui.panel)controls.autoRotate=false;};controls.addEventListener('end',onControlsEnd);
  cleanup.push(()=>{controls.removeEventListener('start',cancelIntro);controls.removeEventListener('end',onControlsEnd);});
  function prepareIntro(){
-  if(introCancelled||reduced.matches)return;
+  if(introCancelled||(reduced.matches&&!window.museumLoading.desktopIntro))return;
   intro={elapsed:0,running:false,damping:controls.enableDamping,auto:controls.autoRotate,infoHidden:document.getElementById('infoBox').classList.contains('hide'),start:initialPosition.clone().sub(initialTarget).multiplyScalar(6.5).add(initialTarget)};
   controls.autoRotate=false;controls.enableDamping=false;controls.update(0);controls.target.copy(initialTarget);camera.position.copy(intro.start);controls.update(0);hideInfo();document.body.classList.add('museum-opening');
  }
@@ -70,7 +71,7 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  const meteor=new THREE.Line(meteorGeometry,meteorMaterial);meteor.name='museum-meteor';meteor.visible=false;meteor.frustumCulled=false;scene.add(meteor);
  cleanup.push(()=>scene.remove(meteor));
  let heavySamples=0,sampleFrames=0,effectsTier=0;
- function setReduced(){if(reduced.matches)cancelIntro();motifs.visible=!reduced.matches&&!pausedEffects;meteor.visible=false;}
+ function setReduced(){if(reduced.matches&&!window.museumLoading.desktopIntro)cancelIntro();motifs.visible=!reduced.matches&&!pausedEffects;meteor.visible=false;}
  listen(reduced,'change',setReduced);setReduced();
  function ready(exhibit){
   if(!model)model=exhibit;
