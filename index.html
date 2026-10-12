@@ -42,7 +42,7 @@ flex-direction:column;gap:16px;padding:24px;text-align:center;
 @keyframes vine-draw{to{stroke-dashoffset:0}}
 @keyframes vine-flower{to{opacity:.7}}
 @keyframes vine-breathe{50%{opacity:.55}}
-@media(prefers-reduced-motion:reduce){.loading.started .loading-vine path{animation:none;stroke-dashoffset:0}.loading.started .loading-vine circle{animation:none;opacity:.7}.loading.waiting .loading-vine{animation:none}.loading{transition:none}}
+@media(prefers-reduced-motion:reduce){html:not(.museum-desktop-intro) .loading.started .loading-vine path{animation:none;stroke-dashoffset:0}html:not(.museum-desktop-intro) .loading.started .loading-vine circle{animation:none;opacity:.7}html:not(.museum-desktop-intro) .loading.waiting .loading-vine{animation:none}html:not(.museum-desktop-intro) .loading{transition:none}}
 #retryBtn{padding:10px 18px;border:1px solid rgba(255,255,255,.3);border-radius:12px;background:rgba(255,255,255,.08);color:white;cursor:pointer;}
 #retryBtn[hidden]{display:none;}
 
@@ -221,6 +221,9 @@ background:rgba(255,255,255,.15);
 <script>
 // The four-second visible drawing is independent of download speed and optional modules.
 const loadingScreen = document.getElementById('loading');
+// Desktop opening motion is requested even when Windows reports reduced motion; keep touch-device behavior.
+const desktopIntro = matchMedia('(hover: hover) and (pointer: fine)').matches;
+document.documentElement.classList.toggle('museum-desktop-intro',desktopIntro);
 let drawingTimer, drawingAt=0, drawingRemaining=4000, drawingDone;
 const drawingFinished = new Promise(resolve => { drawingDone=resolve; });
 function scheduleDrawing(){
@@ -238,7 +241,7 @@ document.addEventListener('visibilitychange', () => {
     if(document.hidden){clearTimeout(drawingTimer);if(drawingAt)drawingRemaining=Math.max(1,drawingRemaining-(performance.now()-drawingAt));drawingAt=0;loadingScreen.classList.add('paused');}
     else{loadingScreen.classList.remove('paused');scheduleDrawing();}
 });
-window.museumLoading={painted:loadingPainted,wait:()=>drawingFinished,
+window.museumLoading={desktopIntro,painted:loadingPainted,wait:()=>drawingFinished,
     fail(){clearTimeout(drawingTimer);drawingRemaining=0;drawingDone();loadingScreen.classList.add('failed');},
     async finish(){await drawingFinished;if(loadingScreen.classList.contains('failed'))return false;loadingScreen.classList.add('leaving');await new Promise(resolve=>setTimeout(resolve,180));if(loadingScreen.classList.contains('failed'))return false;loadingScreen.style.display='none';return true;}
 };
