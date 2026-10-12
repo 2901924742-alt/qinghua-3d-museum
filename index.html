@@ -234,7 +234,8 @@ const loadingPainted = new Promise(resolve => requestAnimationFrame(() => {
 }));
 document.addEventListener('visibilitychange', () => {
     if(!loadingScreen.classList.contains('started') || drawingRemaining<=0 || loadingScreen.classList.contains('failed'))return;
-    if(document.hidden){clearTimeout(drawingTimer);if(drawingAt)drawingRemaining=Math.max(0,drawingRemaining-(performance.now()-drawingAt));drawingAt=0;loadingScreen.classList.add('paused');}
+    // Leave a timer tick for resuming even if a throttled timer's deadline passed before hiding.
+    if(document.hidden){clearTimeout(drawingTimer);if(drawingAt)drawingRemaining=Math.max(1,drawingRemaining-(performance.now()-drawingAt));drawingAt=0;loadingScreen.classList.add('paused');}
     else{loadingScreen.classList.remove('paused');scheduleDrawing();}
 });
 window.museumLoading={painted:loadingPainted,wait:()=>drawingFinished,
