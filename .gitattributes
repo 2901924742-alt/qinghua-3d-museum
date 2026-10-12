@@ -1,0 +1,4 @@
+index.html text eol=lf
+enhancements/*.js text eol=lf
+enhancements/*.css text eol=lf
+docs/*.md text eol=lf

@@ -1,6 +1,9 @@
 import {copy, introductionEN, hotspots, steps, sources, canonicalURL} from './content.js';
 
 export function createUI(core) {
+ const lifetime=new AbortController(), nodes=[];
+ const listen=(node,type,handler)=>node.addEventListener(type,handler,{signal:lifetime.signal});
+ try {
  const $ = id => document.getElementById(id);
  const original = {intro:$('infoBox').querySelector('p').innerHTML};
  let language='zh'; try { if(localStorage.getItem('museum-language')==='en') language='en'; } catch {}
@@ -9,13 +12,13 @@ export function createUI(core) {
  const t = (key,...args) => typeof copy[language][key]==='function' ? copy[language][key](...args) : copy[language][key];
  const tools=document.createElement('nav'); tools.className='museum-tools'; tools.setAttribute('aria-label','Museum tools');
  tools.innerHTML='<button id="museumLanguage" type="button"></button><button id="museumExplore" class="desktop-tool" type="button"></button><button id="museumExport" class="desktop-tool" type="button"></button><button id="museumMore" class="mobile-more" type="button" aria-expanded="false" aria-controls="museumMenu"></button>';
- document.body.append(tools);
+ document.body.append(tools);nodes.push(tools);
  const menu=document.createElement('div');menu.id='museumMenu';menu.className='museum-menu';menu.hidden=true;
- menu.innerHTML='<button id="menuExplore" type="button"></button><button id="menuExport" type="button"></button>';document.body.append(menu);
+ menu.innerHTML='<button id="menuExplore" type="button"></button><button id="menuExport" type="button"></button>';document.body.append(menu);nodes.push(menu);
  const dialog=document.createElement('dialog');dialog.className='museum-dialog';dialog.id='museumDialog';dialog.setAttribute('aria-labelledby','museumPanelTitle');
- dialog.innerHTML='<section class="museum-panel"><header><h2 id="museumPanelTitle"></h2><button id="museumClose" type="button"></button></header><div id="museumPanelContent"></div></section>';document.body.append(dialog);
+ dialog.innerHTML='<section class="museum-panel"><header><h2 id="museumPanelTitle"></h2><button id="museumClose" type="button"></button></header><div id="museumPanelContent"></div></section>';document.body.append(dialog);nodes.push(dialog);
  const layer=document.createElement('div');layer.className='hotspots';layer.hidden=true;
- const buttons=hotspots.map((h,i)=>{const b=document.createElement('button');b.type='button';b.className='hotspot';b.hidden=true;b.innerHTML='<span></span>';b.dataset.hotspot=i;layer.append(b);b.addEventListener('click',()=>{selected=i;tab='details';open('explore');});return b;});document.body.append(layer);
+ const buttons=hotspots.map((h,i)=>{const b=document.createElement('button');b.type='button';b.className='hotspot';b.hidden=true;b.innerHTML='<span></span>';b.dataset.hotspot=i;layer.append(b);b.addEventListener('click',()=>{selected=i;tab='details';open('explore');});return b;});document.body.append(layer);nodes.push(layer);
  const label=(id,key)=>{$(id).textContent=t(key);};
  function translate() {
   if(window.museumLoading)window.museumLoading.language=language;
@@ -49,6 +52,7 @@ export function createUI(core) {
   core.controls.enabled=saved.enabled;core.controls.autoRotate=saved.autoRotate;
   if(!saved.infoHidden)core.restoreInfo();else core.hideInfo();
   if(saved.focus?.isConnected)saved.focus.focus({preventScroll:true});saved=null;
+  if(previewURL)URL.revokeObjectURL(previewURL);previewURL=null;captured=null;$('museumPanelContent').replaceChildren();
  }
  function sourcesHTML(){return `<p class="note">${t('sourceLabel')}: ${sources.map(([label,url])=>`<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`).join(' · ')}</p>`;}
  function renderPanel(){
@@ -119,19 +123,21 @@ export function createUI(core) {
    $('exportStatus').textContent='';
   }catch{if(token===exportToken&&panel==='export')$('exportStatus').textContent=t('exportError');}
  }
- $('museumLanguage').onclick=()=>{language=language==='zh'?'en':'zh';try{localStorage.setItem('museum-language',language);}catch{}translate();};
+ $('museumLanguage').onclick=()=>{core.cancelIntro();language=language==='zh'?'en':'zh';try{localStorage.setItem('museum-language',language);}catch{}translate();};
  $('museumMore').onclick=()=>{menu.hidden=!menu.hidden;$('museumMore').setAttribute('aria-expanded',String(!menu.hidden));};
  ['museumExplore','menuExplore'].forEach(id=>{$(id).onclick=()=>{tab='details';open('explore');};});
  ['museumExport','menuExport'].forEach(id=>{$(id).onclick=()=>open('export');});
- $('museumClose').onclick=close;dialog.addEventListener('cancel',e=>{e.preventDefault();close();});
- dialog.addEventListener('keydown',e=>{if(e.key!=='Tab')return;const focusable=[...dialog.querySelectorAll('button:not([disabled]),a[href]')].filter(el=>el.getClientRects().length&&!el.hidden);const first=focusable[0],last=focusable.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}});
- dialog.addEventListener('click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close();}});
- document.addEventListener('pointerdown',e=>{if(!menu.contains(e.target)&&!tools.contains(e.target))closeMenu();});
- document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!menu.hidden){closeMenu();$('museumMore').focus();}});
+ $('museumClose').onclick=close;listen(dialog,'cancel',e=>{e.preventDefault();close();});
+ listen(dialog,'keydown',e=>{if(e.key!=='Tab')return;const focusable=[...dialog.querySelectorAll('button:not([disabled]),a[href]')].filter(el=>el.getClientRects().length&&!el.hidden);const first=focusable[0],last=focusable.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}});
+ listen(dialog,'click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close();}});
+ listen(document,'pointerdown',e=>{if(!menu.contains(e.target)&&!tools.contains(e.target))closeMenu();});
+ listen(document,'keydown',e=>{if(e.key==='Escape'&&!menu.hidden){closeMenu();$('museumMore').focus();}});
  const api={t,translate,get language(){return language;},get panel(){return panel;},get hotspotsOn(){return hotspotsOn;},buttons,
-  loading(loaded,total){loadingProgress=total>0?Math.min(100,Math.round(loaded/total*100)):null;const loading=$('loading');loading.classList.toggle('unknown',!total);loading.style.setProperty('--draw',total>0?loaded/total:.45);updateLoading();},
+  loading(loaded,total){loadingProgress=total>0?Math.min(100,Math.max(0,Math.round(loaded/total*100))):null;updateLoading();},
   loadError(key){loadingError=key;$('loading').classList.add('failed');updateLoading();},
-  close,hideHotspots(){hotspotsOn=false;layer.hidden=true;}
+  close,hideHotspots(){hotspotsOn=false;layer.hidden=true;},
+  dispose(){close();lifetime.abort();exportToken++;if(previewURL)URL.revokeObjectURL(previewURL);captured=unwrapCanvas=null;nodes.forEach(node=>node.remove());}
  };
  translate();return api;
+ } catch(error) {lifetime.abort();nodes.forEach(node=>node.remove());throw error;}
 }

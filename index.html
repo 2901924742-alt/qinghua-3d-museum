@@ -30,6 +30,19 @@ flex-direction:column;gap:16px;padding:24px;text-align:center;
 }
 
 .loading-status{font-size:13px;color:rgba(255,255,255,.65);letter-spacing:0;max-width:420px;}
+.loading{transition:opacity .18s ease}
+.loading.leaving{opacity:0;pointer-events:none}
+.loading-vine{width:min(260px,75vw);height:88px;color:#a9c9ff;flex-shrink:0}
+.loading-vine path{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;stroke-dashoffset:1}
+.loading.started .loading-vine path{animation:vine-draw var(--duration,2.4s) linear var(--delay,0s) both}
+.loading-vine circle{fill:currentColor;opacity:0}
+.loading.started .loading-vine circle{animation:vine-flower .6s ease 3.1s both}
+.loading.waiting .loading-vine{animation:vine-breathe 2.4s ease-in-out infinite}
+.loading.paused .loading-vine,.loading.paused .loading-vine *,.loading.failed .loading-vine,.loading.failed .loading-vine *{animation-play-state:paused!important}
+@keyframes vine-draw{to{stroke-dashoffset:0}}
+@keyframes vine-flower{to{opacity:.7}}
+@keyframes vine-breathe{50%{opacity:.55}}
+@media(prefers-reduced-motion:reduce){.loading.started .loading-vine path{animation:none;stroke-dashoffset:0}.loading.started .loading-vine circle{animation:none;opacity:.7}.loading.waiting .loading-vine{animation:none}.loading{transition:none}}
 #retryBtn{padding:10px 18px;border:1px solid rgba(255,255,255,.3);border-radius:12px;background:rgba(255,255,255,.08);color:white;cursor:pointer;}
 #retryBtn[hidden]{display:none;}
 
@@ -170,7 +183,12 @@ background:rgba(255,255,255,.15);
 <body>
 
 <div class="loading" id="loading" role="status" aria-live="polite">
-<svg class="loading-vine" viewBox="0 0 260 88" aria-hidden="true"><path pathLength="1" d="M12 66 C70 78 90 10 126 27 C150 38 123 64 103 48 C87 34 113 20 122 35 M72 54 C46 27 70 12 82 31 M154 48 C174 78 218 70 220 38 C222 7 179 7 181 31 C183 49 210 42 201 26 M221 54 Q243 31 249 48 M151 39 C135 14 160 8 164 30 M146 38 C171 30 177 50 157 53 M146 39 C143 60 120 66 125 46 M145 39 C121 34 123 10 138 25 M146 39 L150 26"/><circle cx="147" cy="39" r="3"/></svg>
+<svg class="loading-vine" viewBox="0 0 260 88" aria-hidden="true">
+<path pathLength="1" d="M12 66 C70 78 90 10 126 27 C150 38 123 64 103 48 C87 34 113 20 122 35"/>
+<path pathLength="1" style="--delay:.6s" d="M154 48 C174 78 218 70 220 38 C222 7 179 7 181 31 C183 49 210 42 201 26"/>
+<path pathLength="1" style="--delay:1.2s;--duration:1.8s" d="M72 54 C46 27 70 12 82 31 M221 54 Q243 31 249 48"/>
+<path pathLength="1" style="--delay:1.6s;--duration:2.1s" d="M151 39 C135 14 160 8 164 30 M146 38 C171 30 177 50 157 53 M146 39 C143 60 120 66 125 46 M145 39 C121 34 123 10 138 25 M146 39 L150 26"/>
+<circle cx="147" cy="39" r="3"/></svg>
 <span id="loadingTitle">正在进入屈劲舟制作的数字展馆doge...</span>
 <span class="loading-status" id="loadingStatus"></span>
 <button id="retryBtn" type="button" hidden>重新加载</button>
@@ -201,6 +219,28 @@ background:rgba(255,255,255,.15);
 <button id="resetViewBtn" type="button" disabled>复位视角</button>
 
 <script>
+// The four-second visible drawing is independent of download speed and optional modules.
+const loadingScreen = document.getElementById('loading');
+let drawingTimer, drawingAt=0, drawingRemaining=4000, drawingDone;
+const drawingFinished = new Promise(resolve => { drawingDone=resolve; });
+function scheduleDrawing(){
+    drawingAt=performance.now();
+    drawingTimer=setTimeout(() => {drawingRemaining=0;loadingScreen.classList.add('waiting');drawingDone();},drawingRemaining);
+}
+const loadingPainted = new Promise(resolve => requestAnimationFrame(() => {
+    loadingScreen.classList.add('started');
+    if(!loadingScreen.classList.contains('failed')){if(!document.hidden)scheduleDrawing();else loadingScreen.classList.add('paused');}
+    requestAnimationFrame(resolve);
+}));
+document.addEventListener('visibilitychange', () => {
+    if(!loadingScreen.classList.contains('started') || drawingRemaining<=0 || loadingScreen.classList.contains('failed'))return;
+    if(document.hidden){clearTimeout(drawingTimer);if(drawingAt)drawingRemaining=Math.max(0,drawingRemaining-(performance.now()-drawingAt));drawingAt=0;loadingScreen.classList.add('paused');}
+    else{loadingScreen.classList.remove('paused');scheduleDrawing();}
+});
+window.museumLoading={painted:loadingPainted,wait:()=>drawingFinished,
+    fail(){clearTimeout(drawingTimer);drawingRemaining=0;drawingDone();loadingScreen.classList.add('failed');},
+    async finish(){await drawingFinished;if(loadingScreen.classList.contains('failed'))return false;loadingScreen.classList.add('leaving');await new Promise(resolve=>setTimeout(resolve,180));if(loadingScreen.classList.contains('failed'))return false;loadingScreen.style.display='none';return true;}
+};
 // 独立于模块运行，依赖加载失败时也能给出提示并重新加载。
 window.showMuseumLoadError = function(message, key) {
     const loading = document.getElementById('loading');
@@ -209,18 +249,19 @@ window.showMuseumLoadError = function(message, key) {
     document.getElementById('loadingStatus').textContent = message;
     document.getElementById('retryBtn').hidden = false;
     loading.classList.add('failed');
+    window.museumLoading.fail();
     window.museumLoadErrorKey = key;
-    if (key) { window.museumLoading?.error(key); window.museumEnhancements?.loadError(key); }
+    if (key) {try{window.museumLoading?.error?.(key);}catch(error){console.warn('Loading translation unavailable:',error);}window.runMuseumEnhancement?.(experience=>experience.loadError(key));}
 };
 document.getElementById('retryBtn').addEventListener('click', () => window.location.reload());
 window.addEventListener('error', (event) => {
+    if(event.filename?.includes('/enhancements/')){window.disableMuseumEnhancements?.(event.error);return;}
     if (event.target instanceof HTMLScriptElement && event.target.type === 'module') {
         window.showMuseumLoadError('渲染组件未能加载，请检查网络后重试。', 'engineError');
     } else if (event.message && document.getElementById('loading').style.display !== 'none') {
         window.showMuseumLoadError('展馆暂时无法启动，请检查网络和浏览器的 WebGL 支持后重试。', 'startupError');
     }
 }, true);
-import('./enhancements/loading.js').catch(() => {});
 </script>
 
 <script type="importmap">
@@ -232,6 +273,7 @@ import('./enhancements/loading.js').catch(() => {});
 }
 </script>
 
+<script>import('./enhancements/loading.js').catch(() => {});</script>
 <script type="module">
 
 import * as THREE from "three";
@@ -241,6 +283,15 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 /* ================= 场景 ================= */
 let museumExperience = null;
 let exhibitModel = null;
+function disableExperience(error){
+    const failed=museumExperience;museumExperience=null;window.museumEnhancements=null;
+    try{failed?.dispose();}catch(cleanupError){console.warn('Museum enhancement cleanup:',cleanupError);}
+    console.warn('Museum enhancements unavailable:',error);
+}
+function safeExperience(run){if(!museumExperience)return;try{return run(museumExperience);}catch(error){disableExperience(error);}}
+window.runMuseumEnhancement=safeExperience;
+window.disableMuseumEnhancements=disableExperience;
+await window.museumLoading.painted;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x050505);
 // 主体与展台使用同一远景雾效，天空和黑洞独立于雾化层。
@@ -425,7 +476,7 @@ particles.renderOrder = -1;
 scene.add(particles);
 
 /* ================= 🌌 宇宙星空背景 ================= */
-function createStarTexture() {
+async function createStarTexture() {
     const canvas = document.createElement('canvas');
     canvas.width = 4096;
     canvas.height = 2048;
@@ -444,6 +495,7 @@ function createStarTexture() {
         ctx.beginPath();
         ctx.arc(x, y, radius, 0, Math.PI * 2);
         ctx.fill();
+        if(i && i%400===0)await new Promise(requestAnimationFrame);
     }
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -452,9 +504,9 @@ function createStarTexture() {
     return texture;
 }
 
-const starTexture = createStarTexture();
+const starTexture = await createStarTexture();
 // 桌面星空不受灯光影响。将固定的色调映射一次烘焙到原星图，避免每帧逐像素重复计算。
-function bakeDesktopStarColors(texture) {
+async function bakeDesktopStarColors(texture) {
     const canvas = texture.image;
     const ctx = canvas.getContext('2d');
     const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -471,6 +523,7 @@ function bakeDesktopStarColors(texture) {
         return Math.round(255 * (x <= 0.0031308 ? x * 12.92 : 1.055 * Math.pow(x, 1 / 2.4) - 0.055));
     };
     for (let i = 0; i < data.length; i += 4) {
+        if(i && i%(canvas.width*64*4)===0)await new Promise(requestAnimationFrame);
         const key = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
         let mapped = cache.get(key);
         if (mapped === undefined) {
@@ -493,7 +546,7 @@ function bakeDesktopStarColors(texture) {
     texture.colorSpace = THREE.NoColorSpace;
     texture.needsUpdate = true;
 }
-if (isDesktopRenderer()) bakeDesktopStarColors(starTexture);
+if (isDesktopRenderer()) await bakeDesktopStarColors(starTexture);
 const starMaterial = isDesktopRenderer() ? new THREE.ShaderMaterial({
     uniforms: { uStars: { value: starTexture } },
     vertexShader: `
@@ -916,19 +969,15 @@ loader.load("./qinghuaci.glb",(gltf)=>{
     model.position.y += (-1.05 + 0.28);
     scene.add(model);
     exhibitModel = model;
-    museumExperience?.ready(model);
-    resetViewBtn.disabled = false;
-    document.getElementById("loading").style.display="none";
+    safeExperience(experience=>experience.ready(model));
+    revealMuseum().catch(error=>{console.error('Museum preparation failed:',error);window.showMuseumLoadError('展馆暂时无法启动，请检查网络和浏览器的 WebGL 支持后重试。','startupError');});
 }, (event) => {
     const status = document.getElementById('loadingStatus');
     if (!document.getElementById('retryBtn').hidden) return;
     status.textContent = event.lengthComputable && event.total > 0
-        ? `模型加载中 ${Math.round(event.loaded / event.total * 100)}%`
+        ? `模型加载中 ${Math.min(100,Math.max(0,Math.round(event.loaded / event.total * 100)))}%`
         : '正在加载瓷器模型…';
-    window.museumEnhancements?.loading(event.loaded, event.lengthComputable ? event.total : 0);
-    const loadingElement = document.getElementById('loading');
-    loadingElement.classList.toggle('unknown', !event.total);
-    loadingElement.style.setProperty('--draw', event.total > 0 ? event.loaded / event.total : .45);
+    safeExperience(experience=>experience.loading(event.loaded,event.lengthComputable?event.total:0));
 }, (error) => {
     console.error('瓷器模型加载失败：', error);
     window.showMuseumLoadError('瓷器模型未能加载，请检查网络及 qinghuaci.glb 文件后重试。', 'modelError');
@@ -996,6 +1045,7 @@ document.addEventListener('visibilitychange', () => {
 function animate(timestamp = 0){
     requestAnimationFrame(animate);
     if (document.hidden) return;
+    if(document.getElementById('loading').style.display!=='none'){animationClock.getDelta();return;}
     monitorDesktopQuality(timestamp);
     // 高刷新率电脑最高重绘 60 次/秒；手机沿用当前渲染节奏。
     const interval = 1000 / 60;
@@ -1007,9 +1057,9 @@ function animate(timestamp = 0){
         ? previousFrameAt + dueFrames * interval : timestamp;
     const delta = Math.min(animationClock.getDelta(), 0.1);
     const elapsed = animationClock.elapsedTime;
-    museumExperience?.update(delta);
+    safeExperience(experience=>experience.update(delta));
     controls.update(delta);
-    museumExperience?.afterControls();
+    safeExperience(experience=>experience.afterControls());
     particles.rotation.y += delta * 0.015;
     breathLight.intensity = 0.25 + Math.sin(Date.now()*0.0012)*0.1;
     breathLight.position.x = Math.sin(Date.now()*0.0008)*0.8;
@@ -1101,16 +1151,27 @@ restoreBtn.addEventListener("click",()=>{
     hideBtn.focus({preventScroll:true});
 });
 // Optional enhancements cannot prevent the original museum from loading.
-import('./enhancements/experience.js').then(({createExperience}) => {
+const experienceLoaded=import('./enhancements/experience.js').then(({createExperience}) => {
     museumExperience = createExperience({THREE, scene, renderer, camera, controls,
         renderMuseum: () => renderMuseum(), isDesktop: isDesktopRenderer, hideInfo, restoreInfo});
     window.museumEnhancements = museumExperience;
-    if (exhibitModel) museumExperience.ready(exhibitModel);
-}).catch(error => console.warn('Museum enhancements unavailable:', error));
+    if (exhibitModel) safeExperience(experience=>experience.ready(exhibitModel));
+}).catch(disableExperience);
+async function revealMuseum(){
+    await experienceLoaded;
+    // Keep expensive GPU preparation out of the SVG's continuous growth phase.
+    await window.museumLoading.wait();
+    if(window.museumLoadErrorKey)return;
+    // Warm every pass, including desktop mist composition, before revealing the canvas.
+    await renderer.compileAsync(scene,camera);
+    safeExperience(experience=>experience.prepareIntro());
+    updateMistInstances();updateBlackHoleView();renderMuseum();
+    if(await window.museumLoading.finish()){
+        animationClock.getDelta();previousFrameAt=previousRafAt=qualityWindowAt=0;
+        safeExperience(experience=>experience.startIntro());resetViewBtn.disabled=false;
+    }
+}
 </script>
 
 </body>
 </html>
-
-
-
