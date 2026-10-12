@@ -1158,7 +1158,8 @@ const experienceLoaded=import('./enhancements/experience.js').then(({createExper
     if (exhibitModel) safeExperience(experience=>experience.ready(exhibitModel));
 }).catch(disableExperience);
 async function revealMuseum(){
-    await experienceLoaded;
+    // Optional downloads have only the drawing window; the original museum must not wait for them.
+    await Promise.race([experienceLoaded,window.museumLoading.wait()]);
     // Keep expensive GPU preparation out of the SVG's continuous growth phase.
     await window.museumLoading.wait();
     if(window.museumLoadErrorKey)return;

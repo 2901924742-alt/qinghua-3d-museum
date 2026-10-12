@@ -40,7 +40,7 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
   intro={elapsed:0,running:false,damping:controls.enableDamping,auto:controls.autoRotate,infoHidden:document.getElementById('infoBox').classList.contains('hide'),start:initialPosition.clone().sub(initialTarget).multiplyScalar(6.5).add(initialTarget)};
   controls.autoRotate=false;controls.enableDamping=false;controls.update(0);controls.target.copy(initialTarget);camera.position.copy(intro.start);controls.update(0);hideInfo();document.body.classList.add('museum-opening');
  }
- function startIntro(){if(intro)intro.running=true;}
+ function startIntro(){if(intro){intro.running=true;intro.startAt=performance.now();}}
  const atlas=document.createElement('canvas');atlas.width=384;atlas.height=128;
  const ctx=atlas.getContext('2d');ctx.strokeStyle='#91b8ff';ctx.lineWidth=2.5;ctx.lineCap='round';
  // Original vector flourishes, not reproductions of the model's decoration.
@@ -93,7 +93,7 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  }
  function update(delta){
   time+=delta;
-  if(intro?.running){intro.elapsed+=delta;const p=Math.min(1,intro.elapsed/2.6),ease=p*p*(3-2*p);camera.position.lerpVectors(intro.start,initialPosition,ease);camera.position.x-=3*Math.sin(Math.PI*ease);camera.position.y+=1.5*Math.sin(Math.PI*ease);controls.target.copy(initialTarget);}
+  if(intro?.running){intro.elapsed=(performance.now()-intro.startAt)/1000;const p=Math.min(1,intro.elapsed/2.6),ease=p*p*(3-2*p);camera.position.lerpVectors(intro.start,initialPosition,ease);camera.position.x-=3*Math.sin(Math.PI*ease);camera.position.y+=1.5*Math.sin(Math.PI*ease);controls.target.copy(initialTarget);}
   if(ui.panel)controls.autoRotate=false;
   if(time>5&&!reduced.matches&&!pausedEffects){sampleFrames++;if(delta>.04)heavySamples++;
    if(sampleFrames>=90){if(heavySamples>60){effectsTier=Math.min(2,effectsTier+1);}sampleFrames=heavySamples=0;}}
