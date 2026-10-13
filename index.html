@@ -279,6 +279,8 @@ window.addEventListener('error', (event) => {
 
 <link rel="modulepreload" href="./enhancements/experience.js">
 <link rel="modulepreload" href="./enhancements/ui.js">
+<link rel="modulepreload" href="./enhancements/exhibits.js">
+<link rel="modulepreload" href="./enhancements/gallery.js">
 <script>import('./enhancements/loading.js').catch(() => {});</script>
 <script type="module">
 
@@ -328,6 +330,8 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 document.body.appendChild(renderer.domElement);
+renderer.domElement.addEventListener('webglcontextlost',event=>{event.preventDefault();safeExperience(experience=>experience.cancelIntro());});
+renderer.domElement.addEventListener('webglcontextrestored',()=>window.location.reload());
 
 /* ================= 控制器 ================= */
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -937,8 +941,7 @@ function updateBlackHoleView() {
 
 /* ================= 模型 ================= */
 const loader = new GLTFLoader();
-loader.load("./qinghuaci.glb",(gltf)=>{
-    const model = gltf.scene;
+function prepareExhibit(model, original = true) {
     // 保留原始颜色、贴图和 IOR；修正瓷器的金属度及被关闭的釉面反射。
     model.traverse((object) => {
         if (!object.isMesh) return;
@@ -947,7 +950,7 @@ loader.load("./qinghuaci.glb",(gltf)=>{
         materials.forEach((material) => {
             if (!material.isMeshStandardMaterial) return;
             material.metalness = 0;
-            material.roughness = 0.38;
+            if (original) material.roughness = 0.38;
             if ('specularIntensity' in material) material.specularIntensity = 1;
             // 与展台使用相同的远景雾效，正常观看距离不会雾化。
             material.fog = true;
@@ -958,21 +961,54 @@ loader.load("./qinghuaci.glb",(gltf)=>{
             material.needsUpdate = true;
         });
     });
-    const box = new THREE.Box3().setFromObject(model);
+    const box = new THREE.Box3().setFromObject(model, !original);
     const size = box.getSize(new THREE.Vector3());
     const maxSize = Math.max(size.x,size.y,size.z);
     if (!Number.isFinite(maxSize) || maxSize <= 0) {
-        window.showMuseumLoadError('模型尺寸无效，请检查模型文件后重试。', 'modelSizeError');
-        return;
+        throw new Error('Invalid exhibit dimensions');
     }
     model.scale.setScalar(1.8 / maxSize);
-    const newBox = new THREE.Box3().setFromObject(model);
+    const newBox = new THREE.Box3().setFromObject(model, !original);
     const newCenter = newBox.getCenter(new THREE.Vector3());
     const minY = newBox.min.y;
     model.position.x -= newCenter.x;
     model.position.z -= newCenter.z;
     model.position.y -= minY;
     model.position.y += (-1.05 + 0.28);
+    return model;
+}
+function disposeExhibit(model) {
+    if (!model || model.userData.museumDisposed) return;
+    model.userData.museumDisposed = true;
+    const geometries = new Set(), materials = new Set(), textures = new Set(), images = new Set();
+    model.traverse(object=>{
+        if (!object.isMesh) return;
+        geometries.add(object.geometry);
+        for (const material of [].concat(object.material)) {
+            materials.add(material);
+            for (const value of Object.values(material)) if (value?.isTexture) textures.add(value);
+        }
+    });
+    textures.forEach(texture=>{if (texture.image?.close) images.add(texture.image);texture.dispose();});
+    images.forEach(image=>image.close());materials.forEach(material=>material.dispose());geometries.forEach(geometry=>geometry.dispose());
+}
+async function loadExhibit(url, signal) {
+    const response = await fetch(url, {signal});
+    if (!response.ok) throw new Error(`Exhibit HTTP ${response.status}`);
+    const bytes = await response.arrayBuffer();
+    if (signal.aborted) throw signal.reason;
+    const gltf = await loader.parseAsync(bytes, '');
+    try {
+        if (signal.aborted) throw signal.reason;
+        return prepareExhibit(gltf.scene, url === './qinghuaci.glb');
+    } catch(error) {disposeExhibit(gltf.scene);throw error;}
+}
+loader.load("./qinghuaci.glb",(gltf)=>{
+    let model;
+    try {model = prepareExhibit(gltf.scene);} catch(error) {
+        disposeExhibit(gltf.scene);
+        window.showMuseumLoadError('模型尺寸无效，请检查模型文件后重试。', 'modelSizeError');return;
+    }
     scene.add(model);
     exhibitModel = model;
     safeExperience(experience=>experience.ready(model));
@@ -1159,7 +1195,8 @@ restoreBtn.addEventListener("click",()=>{
 // Optional enhancements cannot prevent the original museum from loading.
 const experienceLoaded=import('./enhancements/experience.js').then(({createExperience}) => {
     museumExperience = createExperience({THREE, scene, renderer, camera, controls,
-        renderMuseum: () => renderMuseum(), isDesktop: isDesktopRenderer, hideInfo, restoreInfo});
+        renderMuseum: () => renderMuseum(), isDesktop: isDesktopRenderer, hideInfo, restoreInfo,
+        loadExhibit, disposeExhibit, onExhibitChange:model=>{exhibitModel=model;}});
     window.museumEnhancements = museumExperience;
     if (exhibitModel) safeExperience(experience=>experience.ready(exhibitModel));
 }).catch(disableExperience);

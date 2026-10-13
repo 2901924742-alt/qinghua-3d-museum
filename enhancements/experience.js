@@ -1,16 +1,17 @@
 import {createUI} from './ui.js';
-import {hotspots} from './content.js';
+import {exhibits} from './exhibits.js';
+import {createGallery} from './gallery.js';
 
 // Enhancements share the existing animation loop and never change the porcelain renderer settings.
-export function createExperience({THREE,scene,renderer,camera,controls,renderMuseum,isDesktop,hideInfo,restoreInfo}) {
+export function createExperience({THREE,scene,renderer,camera,controls,renderMuseum,isDesktop,hideInfo,restoreInfo,loadExhibit,disposeExhibit,onExhibitChange}) {
  const lifetime=new AbortController(),cleanup=[];
  const listen=(node,type,handler,options={})=>node.addEventListener(type,handler,{...options,signal:lifetime.signal});
  function dispose(){lifetime.abort();cleanup.reverse().forEach(fn=>{try{fn();}catch(error){console.warn('Museum enhancement cleanup:',error);}});cleanup.length=0;}
  try {
- let model=null,anchors=null,intro=null,introCancelled=false,time=0,meteorAt=10,meteorStart=-1,pausedEffects=false;
+ let model=null,anchors=null,intro=null,introCancelled=false,time=0,meteorAt=10,meteorStart=-1,pausedEffects=false,gallery=null,exhibitIndex=0;
  const reduced=matchMedia('(prefers-reduced-motion: reduce)');
  const dummy=new THREE.Object3D(),tmp=new THREE.Vector3(),tmpNormal=new THREE.Vector3();
- const ui=createUI({controls,hideInfo,restoreInfo,cancelIntro,capture,unwrap});
+ const ui=createUI({controls,hideInfo,restoreInfo,cancelIntro,capture,unwrap,switchExhibit:direction=>gallery?.step(direction)});
  cleanup.push(()=>ui.dispose(),()=>{if(intro){camera.position.copy(initialPosition);controls.target.copy(initialTarget);controls.update(0);}cancelIntro();});
  // Let OrbitControls receive every pointer. Activate a hotspot only after a stationary single-pointer tap.
  const tapPointers=new Map();let multiplePointers=false,pendingHotspot=null;
@@ -25,8 +26,10 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  // following compatibility click to the dialog backdrop and immediately close it.
  listen(renderer.domElement,'click',()=>{const button=pendingHotspot;pendingHotspot=null;if(button&&!button.hidden&&ui.hotspotsOn&&!ui.panel)button.click();});
  const initialPosition=controls.position0.clone(),initialTarget=controls.target0.clone();
+ gallery=createGallery({THREE,renderer,scene,camera,controls,loadExhibit,disposeExhibit,getModel:()=>model,commit:ready,ui,cancelIntro,hideInfo,restoreInfo});
+ cleanup.push(()=>gallery.dispose());
  function cancelIntro(){
-  introCancelled=true;finishIntro();
+  introCancelled=true;finishIntro();gallery?.cancel();
  }
  function finishIntro(){if(!intro)return;controls.enableDamping=intro.damping;controls.autoRotate=intro.auto;if(!intro.infoHidden)restoreInfo();intro=null;document.body.classList.remove('museum-opening');}
  listen(renderer.domElement,'pointerdown',cancelIntro,{capture:true});listen(renderer.domElement,'wheel',cancelIntro,{capture:true,passive:true});
@@ -73,16 +76,18 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  let heavySamples=0,sampleFrames=0,effectsTier=0;
  function setReduced(){if(reduced.matches&&!window.museumLoading.desktopIntro)cancelIntro();motifs.visible=!reduced.matches&&!pausedEffects;meteor.visible=false;}
  listen(reduced,'change',setReduced);setReduced();
- function ready(exhibit){
-  if(!model)model=exhibit;
+ function ready(exhibit,index=0){
+  ui.setExhibit(index);model=exhibit;exhibitIndex=index;anchors=null;pendingHotspot=null;
+  onExhibitChange(exhibit);
  }
  function locateHotspots(){
   model.updateWorldMatrix(true,true);const box=new THREE.Box3().setFromObject(model),center=box.getCenter(new THREE.Vector3()),height=box.max.y-box.min.y;
-  anchors=hotspots.map(h=>{
+  anchors=exhibits[exhibitIndex].hotspots.map(h=>{
    let best=null,score=Infinity;
    model.traverse(mesh=>{if(!mesh.isMesh)return;const p=mesh.geometry.attributes.position,n=mesh.geometry.attributes.normal;if(!n)return;
     const nm=new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
-    for(let i=0;i<p.count;i++){
+    const stride=exhibitIndex===0?1:Math.max(1,Math.ceil(p.count/5000));
+    for(let i=0;i<p.count;i+=stride){
      tmp.fromBufferAttribute(p,i).applyMatrix4(mesh.matrixWorld);tmpNormal.fromBufferAttribute(n,i).applyMatrix3(nm).normalize();
      const radius=Math.hypot(tmp.x-center.x,tmp.z-center.z);if(radius<.04||(tmpNormal.x*(tmp.x-center.x)+tmpNormal.z*(tmp.z-center.z))<.04)continue;
      const angle=Math.atan2(tmp.x-center.x,tmp.z-center.z),level=(tmp.y-box.min.y)/height;
@@ -94,6 +99,7 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  }
  function update(delta){
   time+=delta;
+  gallery.update();
   if(intro?.running){intro.elapsed=(performance.now()-intro.startAt)/1000;const p=Math.min(1,intro.elapsed/2.6),ease=p*p*(3-2*p);camera.position.lerpVectors(intro.start,initialPosition,ease);camera.position.x-=3*Math.sin(Math.PI*ease);camera.position.y+=1.5*Math.sin(Math.PI*ease);controls.target.copy(initialTarget);}
   if(ui.panel)controls.autoRotate=false;
   if(time>5&&!reduced.matches&&!pausedEffects){sampleFrames++;if(delta>.04)heavySamples++;
@@ -115,7 +121,7 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
    tmp.copy(a.position).project(camera);const x=(tmp.x*.5+.5)*innerWidth,y=(-tmp.y*.5+.5)*innerHeight;
    const overInfo=!info.classList.contains('hide')&&x>r.left-22&&x<r.right+22&&y>r.top-22&&y<r.bottom+22;
    button.hidden=!front||overInfo||tmp.z>=1||tmp.z<=-1||x<25||x>innerWidth-25||y<150||y>innerHeight-28;
-   if(!button.hidden){button.style.left=`${x}px`;button.style.top=`${y}px`;}
+   if(!button.hidden){button.style.left=`${x}px`;button.style.top=`${y}px`;const label=button.querySelector('span');label.style.left=x>innerWidth-170?'auto':'38px';label.style.right=x>innerWidth-170?'38px':'auto';}
   });
  }
  function capture(){

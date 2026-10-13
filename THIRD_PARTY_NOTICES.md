@@ -9,7 +9,13 @@ This site redistributes the following unchanged JavaScript files from **three.js
 
 Copyright © 2010–2023 three.js authors. The full license is preserved in `vendor/LICENSE`. File sizes and SHA-256 checksums are recorded in `vendor/manifest.json`.
 
-The version and files match the dependencies previously loaded by this site from unpkg. No third-party museum models, textures, or text were imported from the reference projects listed in `docs/open-source-notes.md`.
+The version and files match the dependencies previously loaded by this site from unpkg. The engine has not been upgraded.
+
+## Smithsonian porcelain scans
+
+Three additional blue-and-white porcelain scans and associated collection metadata from the Smithsonian Institution are used under CC0 1.0. Source records, transformations and checksums are documented in `models/README.md` and `models/manifest.json`. The original exhibit is retained unchanged. The presentation is independent and is not endorsed by the Smithsonian.
+
+The switching logic is original code informed by the resource lifecycle in [three-gltf-viewer](https://github.com/donmccurdy/three-gltf-viewer/blob/main/src/viewer.js) and cancellation ownership in [model-viewer](https://github.com/google/model-viewer/blob/master/packages/model-viewer/src/three-components/ModelScene.ts). No source code from those projects is redistributed and no second viewer is embedded.
 
 ## QR Code Generator 1.4.4
 
