@@ -3,6 +3,7 @@ import {exhibits} from './exhibits.js';
 // One scene and one live exhibit; parsed candidates live only until commit or cancellation.
 export function createGallery({THREE,renderer,scene,camera,controls,loadExhibit,disposeExhibit,getModel,commit,ui,cancelIntro,hideInfo,restoreInfo}){
  let current=0,requested=0,serial=0,pending=null,motion=null,preparing=Promise.resolve();
+ const pullOut=1.05,hold=.3,pushIn=1.65,duration=pullOut+hold+pushIn;
  const point=new THREE.Vector3();
  const frame=signal=>new Promise((resolve,reject)=>{
   const abort=()=>{cancelAnimationFrame(id);signal.removeEventListener('abort',abort);reject(signal.reason);};
@@ -43,7 +44,7 @@ export function createGallery({THREE,renderer,scene,camera,controls,loadExhibit,
    controller.signal.throwIfAborted();
    if(token!==serial)return;
    const start=camera.position.clone(),targetStart=controls.target.clone(),targetEnd=controls.target0.clone(),end=controls.position0.clone();
-   const far=end.clone().sub(targetEnd).multiplyScalar(4).add(targetEnd);far.x+=2.4;far.y+=1.2;
+   const far=end.clone().sub(targetEnd);far.x+=2.4;far.y+=1.2;far.setLength(controls.maxDistance).add(targetEnd);
    motion={next:candidate,index:target,at:performance.now(),instant:matchMedia('(prefers-reduced-motion: reduce)').matches&&!window.museumLoading.desktopIntro,committed:false,start,targetStart,targetEnd,end,far,damping:controls.enableDamping,auto:controls.autoRotate,infoHidden:document.getElementById('infoBox').classList.contains('hide')};candidate=null;
    controls.autoRotate=false;controls.enableDamping=false;controls.update(0);hideInfo();document.body.classList.add('museum-switching');state('moving');
   }catch(error){if(token===serial){requested=current;state('error');console.warn('Exhibit switch failed:',error);}}
@@ -51,8 +52,10 @@ export function createGallery({THREE,renderer,scene,camera,controls,loadExhibit,
  }
  function update(){
   if(!motion)return;
-  const m=motion,elapsed=m.instant?2.6:(performance.now()-m.at)/1000;
-  if(elapsed>=.9&&!m.committed){
+  const m=motion;let elapsed=m.instant?duration:(performance.now()-m.at)/1000;
+  if(elapsed>=pullOut+hold/2&&!m.committed){
+   // A delayed frame must still show the distant swap before the approach begins.
+   if(!m.instant){elapsed=pullOut+hold/2;m.at=performance.now()-elapsed*1000;camera.position.copy(m.far);controls.target.copy(m.targetEnd);}
    const previous=getModel();scene.add(m.next);
    try{commit(m.next,m.index);}catch(error){
     scene.remove(m.next);try{commit(previous,current);}catch(rollbackError){console.warn('Exhibit UI recovery:',rollbackError);}
@@ -61,10 +64,10 @@ export function createGallery({THREE,renderer,scene,camera,controls,loadExhibit,
    current=m.index;m.committed=true;
    scene.remove(previous);disposeExhibit(previous);state('moving');
   }
-  const outbound=elapsed<.9,p=Math.min(1,outbound?elapsed/.9:(elapsed-.9)/1.7),ease=p*p*(3-2*p);
+  const outbound=elapsed<pullOut,p=Math.min(1,outbound?elapsed/pullOut:Math.max(0,elapsed-pullOut-hold)/pushIn),ease=p*p*(3-2*p);
   camera.position.lerpVectors(outbound?m.start:m.far,outbound?m.far:m.end,ease);
   point.lerpVectors(outbound?m.targetStart:m.targetEnd,m.targetEnd,ease);controls.target.copy(point);
-  if(elapsed>=2.6){finish();requested=current;state();}
+  if(elapsed>=duration){finish();requested=current;state();}
  }
  state();
  return {step,cancel,update,dispose:cancel,get index(){return current;},get active(){return !!motion||!!pending;}};

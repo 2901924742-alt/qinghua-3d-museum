@@ -1,5 +1,4 @@
 :root{--cobalt:#1f3f8f;--ice:#a9c9ff;--paper:#f2f6ff}
-.title:after{content:"";display:block;width:48px;height:1px;background:var(--ice);opacity:.6;margin:6px auto}
 .info{border-color:rgba(116,160,239,.26);background:rgba(10,20,39,.58);max-height:calc(100dvh - 150px);overflow-y:auto}
 #hideBtn,#restoreBtn,#resetViewBtn,.museum-tools button,.museum-menu button,.museum-panel button,.museum-panel a.download{border-color:rgba(136,177,250,.4);background:rgba(17,36,76,.65);color:var(--paper)}
 #resetViewBtn{top:96px;right:30px}
