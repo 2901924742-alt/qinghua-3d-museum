@@ -41,5 +41,5 @@ body.museum-panel-open .tip,body.museum-panel-open #restoreBtn{visibility:hidden
 .gallery-caption{flex:1;min-width:0;text-align:center}.gallery-caption span{display:block;color:var(--ice);font-size:10px;letter-spacing:2px;margin-bottom:5px}.gallery-caption strong{display:block;font-size:12px;line-height:1.4;overflow-wrap:anywhere}
 #museumSwitchStatus{position:absolute;top:100%;left:0;right:0;margin:8px 0 0;padding:9px 12px;background:#0a1427e8;border:1px solid #5276b4;border-radius:12px;font-size:11px;line-height:1.5;text-align:center}
 .museum-switching .info,.museum-switching .hotspots,.museum-switching .tip,.museum-switching #restoreBtn{visibility:hidden!important}
-@media(max-width:560px){.museum-gallery{left:16px;right:16px;top:140px;width:auto;padding:7px 10px}.gallery-caption strong{font-size:11px}.info{max-height:calc(100dvh - 254px)}}
+@media(max-width:560px){.museum-gallery{left:auto;right:16px;top:140px;width:min(240px,calc(100% - 132px));gap:6px;padding:7px 8px}.gallery-caption strong{font-size:11px}.info{max-height:calc(100dvh - 254px)}}
 @media(max-width:560px){.hotspot span{width:max-content}}
