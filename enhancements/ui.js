@@ -1,4 +1,5 @@
-import {copy, introductionEN, hotspots, steps, sources, canonicalURL} from './content.js';
+import {copy, introductionEN, steps, sources, canonicalURL} from './content.js';
+import {exhibits} from './exhibits.js';
 
 export function createUI(core) {
  const lifetime=new AbortController(), nodes=[];
@@ -9,7 +10,12 @@ export function createUI(core) {
  let language='zh'; try { if(localStorage.getItem('museum-language')==='en') language='en'; } catch {}
  let panel=null, saved=null, tab='details', selected=0, hotspotsOn=false, previewURL=null, captured=null, unwrapCanvas=null, exportToken=0;
  let loadingProgress=null, loadingError=window.museumLoadErrorKey || null;
- const t = (key,...args) => typeof copy[language][key]==='function' ? copy[language][key](...args) : copy[language][key];
+ let exhibit=exhibits[0],hotspots=exhibit.hotspots,currentIndex=0,pendingIndex=0,switchState='idle';
+ const t = (key,...args) => {const value=exhibit[language][key]??copy[language][key];return typeof value==='function'?value(...args):value;};
+ const gallery=document.createElement('nav');gallery.className='museum-gallery';gallery.id='museumGallery';
+ gallery.innerHTML='<button id="museumPrevious" type="button">‹</button><div class="gallery-caption"><span id="museumExhibitCounter"></span><strong id="museumExhibitName"></strong></div><button id="museumNext" type="button">›</button><p id="museumSwitchStatus" role="status" aria-live="polite"></p>';
+ document.body.append(gallery);nodes.push(gallery);
+ $('museumPrevious').onclick=()=>core.switchExhibit(-1);$('museumNext').onclick=()=>core.switchExhibit(1);
  const tools=document.createElement('nav'); tools.className='museum-tools'; tools.setAttribute('aria-label','Museum tools');
  tools.innerHTML='<button id="museumLanguage" type="button"></button><button id="museumExplore" class="desktop-tool" type="button"></button><button id="museumExport" class="desktop-tool" type="button"></button><button id="museumMore" class="mobile-more" type="button" aria-expanded="false" aria-controls="museumMenu"></button>';
  document.body.append(tools);nodes.push(tools);
@@ -24,12 +30,20 @@ export function createUI(core) {
   if(window.museumLoading)window.museumLoading.language=language;
   document.documentElement.lang=language==='zh'?'zh-CN':'en';document.title=t('pageTitle');
   document.querySelector('.title').textContent=t('title');document.querySelector('.sub').textContent=t('sub');
-  document.querySelector('.info h2').textContent=t('exhibit');$('infoBox').querySelector('p').innerHTML=language==='zh'?original.intro:introductionEN;
+  document.querySelector('.info h2').textContent=t('exhibit');$('infoBox').querySelector('p').innerHTML=exhibit[language].intro??(language==='zh'?original.intro:introductionEN);
   document.querySelector('.tip').textContent=t('tip');
   [['museumLanguage','language'],['museumExplore','explore'],['menuExplore','explore'],['museumExport','export'],['menuExport','export'],['museumMore','more'],['museumClose','close'],['resetViewBtn','reset'],['hideBtn','hide'],['restoreBtn','restore'],['retryBtn','retry']].forEach(([id,key])=>label(id,key));
   tools.setAttribute('aria-label',language==='zh'?'展馆工具':'Museum tools');
   buttons.forEach((b,i)=>{b.setAttribute('aria-label',hotspots[i][language][0]);b.querySelector('span').textContent=hotspots[i][language][0];});
-  updateLoading();if(panel) renderPanel();
+  updateGallery();updateLoading();if(panel) renderPanel();
+ }
+ function updateGallery(){
+  gallery.dataset.exhibit=exhibit.id;
+  gallery.setAttribute('aria-label',t('collection'));gallery.setAttribute('aria-busy',String(switchState==='loading'||switchState==='moving'));
+  $('museumPrevious').setAttribute('aria-label',t('previous'));$('museumNext').setAttribute('aria-label',t('next'));
+  $('museumExhibitCounter').textContent=`${String(currentIndex+1).padStart(2,'0')} / ${String(exhibits.length).padStart(2,'0')}`;
+  $('museumExhibitName').textContent=t('exhibit');
+  const status=$('museumSwitchStatus');status.hidden=switchState==='idle';status.textContent=switchState==='loading'?t('switchLoading',exhibits[pendingIndex][language].exhibit):switchState==='moving'?t('switchMoving'):switchState==='error'?t('switchError'):'';
  }
  function updateLoading(){
   if($('loading').style.display==='none') return;
@@ -54,7 +68,7 @@ export function createUI(core) {
   if(saved.focus?.isConnected)saved.focus.focus({preventScroll:true});saved=null;
   if(previewURL)URL.revokeObjectURL(previewURL);previewURL=null;captured=null;$('museumPanelContent').replaceChildren();
  }
- function sourcesHTML(){return `<p class="note">${t('sourceLabel')}: ${sources.map(([label,url])=>`<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`).join(' · ')}</p>`;}
+ function sourcesHTML(){return `<p class="note">${t('sourceLabel')}: ${[...(exhibit.source?[exhibit.source]:[]),...sources].map(([label,url])=>`<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`).join(' · ')}</p>`;}
  function renderPanel(){
   $('museumPanelTitle').textContent=t(panel==='explore'?'explore':'export');label('museumClose','close');
   const content=$('museumPanelContent');
@@ -63,15 +77,16 @@ export function createUI(core) {
    content.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{tab=b.dataset.tab;renderPanel();content.querySelector(`[data-tab="${tab}"]`).focus();}));
    const knowledge=$('museumKnowledge');
    if(tab==='details') {
-    knowledge.innerHTML=`<p>${t('exploreIntro')}</p><div class="museum-tabs">${hotspots.map((h,i)=>`<button type="button" data-detail="${i}" aria-pressed="${selected===i}">${h[language][0]}</button>`).join('')}</div><h3>${hotspots[selected][language][0]}</h3><p>${hotspots[selected][language][1]}</p><button id="toggleHotspots" type="button">${t(hotspotsOn?'hotspotOff':'hotspotHint')}</button><p class="note">${t('scope')}</p>`;
+    knowledge.innerHTML=`<p>${t('exploreIntro')}</p><div class="museum-tabs">${hotspots.map((h,i)=>`<button type="button" data-detail="${i}" aria-pressed="${selected===i}">${h[language][0]}</button>`).join('')}</div><h3>${hotspots[selected][language][0]}</h3><p>${hotspots[selected][language][1]}</p><button id="toggleHotspots" type="button">${t(hotspotsOn?'hotspotOff':'hotspotHint')}</button><p class="note">${t('scope')}</p>`+sourcesHTML();
     knowledge.querySelectorAll('[data-detail]').forEach(b=>b.addEventListener('click',()=>{selected=+b.dataset.detail;renderPanel();$('museumPanelContent').querySelector(`[data-detail="${selected}"]`).focus();}));
     $('toggleHotspots').onclick=()=>{hotspotsOn=!hotspotsOn;layer.hidden=!hotspotsOn;close();};
    } else if(tab==='craft') {
     knowledge.innerHTML=steps.map((step,i)=>`<article class="craft-step"><h3>${String(i+1).padStart(2,'0')} · ${step[language][0]}</h3><p>${step[language][1]}</p></article>`).join('')+`<p class="note">${t('craftNote')}</p>`+sourcesHTML();
    } else {
     knowledge.innerHTML=`<p>${t('unwrapNote')}</p><p id="unwrapStatus" role="status">${t('unwrapLoading')}</p>`;
-    // Lazy construction; one GPU readback, then cache the canvas across language changes.
-    setTimeout(()=>{if(panel!=='explore'||tab!=='unwrap'||!$('unwrapStatus'))return;try{
+    // Ignore a deferred unwrap if the exhibit or panel changed before it ran.
+    const unwrapExhibit=exhibit;
+    setTimeout(()=>{if(exhibit!==unwrapExhibit||panel!=='explore'||tab!=='unwrap'||!$('unwrapStatus'))return;try{
      unwrapCanvas ||= core.unwrap();unwrapCanvas.setAttribute('role','img');unwrapCanvas.setAttribute('aria-label',t('unwrapAlt'));
      $('unwrapStatus').remove();$('museumKnowledge').append(unwrapCanvas);
      for(const [key,start,fraction] of [['rim',0,.16],['foot',.83,.17]]){
@@ -109,7 +124,8 @@ export function createUI(core) {
     const ctx=canvas.getContext('2d');ctx.fillStyle='#071125';ctx.fillRect(0,0,width,canvas.height);
     ctx.fillStyle='#f2f6ff';ctx.textAlign='left';ctx.font='600 46px "Microsoft YaHei", sans-serif';ctx.fillText(copy[lang].title,48,70);
     ctx.font='20px sans-serif';ctx.fillStyle='#a9c9ff';ctx.fillText(copy[lang].sub,48,110);ctx.drawImage(captured,0,header,width,imageHeight);
-    ctx.fillStyle='#f2f6ff';ctx.font='28px "Microsoft YaHei", sans-serif';ctx.fillText(copy[lang].creator,48,header+imageHeight+80);
+    ctx.fillStyle='#f2f6ff';ctx.font='25px "Microsoft YaHei", sans-serif';ctx.fillText(exhibit[lang].exhibit,48,header+imageHeight+45,680);
+    ctx.font='28px "Microsoft YaHei", sans-serif';ctx.fillText(copy[lang].creator,48,header+imageHeight+85);
     ctx.font='23px "Microsoft YaHei", sans-serif';ctx.fillStyle='#a9c9ff';ctx.fillText(copy[lang].posterFooter,48,header+imageHeight+130);
     ctx.font='18px sans-serif';ctx.fillText(new URL(canonicalURL).host,48,header+imageHeight+172);
     const count=qr.getModuleCount(), cell=Math.max(4,Math.floor(190/(count+8))),size=(count+8)*cell,x=width-48-size,y=canvas.height-footer+(footer-size)/2;
@@ -119,7 +135,7 @@ export function createUI(core) {
    const blob=await toBlob(canvas);if(token!==exportToken||panel!=='export')return;
    if(previewURL)URL.revokeObjectURL(previewURL);previewURL=URL.createObjectURL(blob);
    const img=$('exportPreview');img.src=previewURL;img.alt=t(poster?'posterAlt':'photoAlt');img.hidden=false;
-   const link=$('exportDownload');link.href=previewURL;link.download=`qinghua-${poster?'poster':'photo'}-${language}.png`;link.textContent=t('download');link.hidden=false;
+   const link=$('exportDownload');link.href=previewURL;link.download=`qinghua-${exhibit.id}-${poster?'poster':'photo'}-${language}.png`;link.textContent=t('download');link.hidden=false;
    $('exportStatus').textContent='';
   }catch{if(token===exportToken&&panel==='export')$('exportStatus').textContent=t('exportError');}
  }
@@ -133,6 +149,8 @@ export function createUI(core) {
  listen(document,'pointerdown',e=>{if(!menu.contains(e.target)&&!tools.contains(e.target))closeMenu();});
  listen(document,'keydown',e=>{if(e.key==='Escape'&&!menu.hidden){closeMenu();$('museumMore').focus();}});
  const api={t,translate,get language(){return language;},get panel(){return panel;},get hotspotsOn(){return hotspotsOn;},buttons,
+  setExhibit(index){close();exportToken++;captured=unwrapCanvas=null;currentIndex=index;exhibit=exhibits[index];hotspots=exhibit.hotspots;selected=0;buttons.forEach(b=>b.hidden=true);translate();},
+  galleryState(index,target,state){currentIndex=index;pendingIndex=target;switchState=state;updateGallery();},
   loading(loaded,total){loadingProgress=total>0?Math.min(100,Math.max(0,Math.round(loaded/total*100))):null;updateLoading();},
   loadError(key){loadingError=key;$('loading').classList.add('failed');updateLoading();},
   close,hideHotspots(){hotspotsOn=false;layer.hidden=true;},

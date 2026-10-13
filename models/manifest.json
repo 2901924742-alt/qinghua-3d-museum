@@ -1,0 +1,128 @@
+[
+  {
+    "file": "covered-vase-192.glb",
+    "license": "CC0-1.0",
+    "creator": "Smithsonian Institution",
+    "source": "https://3d-api.si.edu/content/document/3d_package:d8c62634-4ebc-11ea-b77f-2e728ce88125/f1980_192-smooth-textured-combined-100k_std_draco.glb",
+    "sourceSHA256": "03163e90115693c53f73f1ed9b1b4f948f4404842f3a231d64f66ff8a5ca5c71",
+    "sha256": "5fbe058b1fae4483ef278be1cc4ab01393c5401d8d410fb28ba6cff6eff52752",
+    "bytes": 2330032,
+    "triangles": 39999,
+    "images": [
+      {
+        "size": [
+          1024,
+          1024
+        ],
+        "mime": "image/jpeg"
+      },
+      {
+        "size": [
+          512,
+          512
+        ],
+        "mime": "image/png"
+      },
+      {
+        "size": [
+          2048,
+          2048
+        ],
+        "mime": "image/jpeg"
+      },
+      {
+        "size": [
+          1024,
+          1024
+        ],
+        "mime": "image/jpeg"
+      },
+      {
+        "size": [
+          512,
+          512
+        ],
+        "mime": "image/png"
+      },
+      {
+        "size": [
+          2048,
+          2048
+        ],
+        "mime": "image/jpeg"
+      }
+    ],
+    "estimatedTextureMiB": 56.0,
+    "originalColourBytesPreserved": true
+  },
+  {
+    "file": "beaker-vase-193.glb",
+    "license": "CC0-1.0",
+    "creator": "Smithsonian Institution",
+    "source": "https://3d-api.si.edu/content/document/3d_package:d8c63a70-4ebc-11ea-b77f-2e728ce88125/f1980_193-smooth-textured-150k-2048-medium-100k-2048_std_draco.glb",
+    "sourceSHA256": "8062ab6595375c32b36a79f215de86e3e81990363119ef376b4840ceee16a258",
+    "sha256": "37ff9003e862fca31c7387f5c5397f54e418dafd73e53c0a7875010e76293a11",
+    "bytes": 1524164,
+    "triangles": 40000,
+    "images": [
+      {
+        "size": [
+          2048,
+          2048
+        ],
+        "mime": "image/jpeg"
+      },
+      {
+        "size": [
+          512,
+          512
+        ],
+        "mime": "image/png"
+      },
+      {
+        "size": [
+          1024,
+          1024
+        ],
+        "mime": "image/jpeg"
+      }
+    ],
+    "estimatedTextureMiB": 28.0,
+    "originalColourBytesPreserved": true
+  },
+  {
+    "file": "covered-vase-191.glb",
+    "license": "CC0-1.0",
+    "creator": "Smithsonian Institution",
+    "source": "https://3d-api.si.edu/content/document/3d_package:d8c6393a-4ebc-11ea-b77f-2e728ce88125/f1980_191-mesh-smooth-textured-150k-2048-medium-100k-2048_std_draco.glb",
+    "sourceSHA256": "436d590a787e5ba64bc3a779de1276bb5c41d440c434dbf42eb24ec2c187f19f",
+    "sha256": "7e305a0d67aaa4aad513517b8aabe325e3cbf57f2b15de76232568161c7b71a2",
+    "bytes": 1627316,
+    "triangles": 39998,
+    "images": [
+      {
+        "size": [
+          2048,
+          2048
+        ],
+        "mime": "image/jpeg"
+      },
+      {
+        "size": [
+          512,
+          512
+        ],
+        "mime": "image/png"
+      },
+      {
+        "size": [
+          1024,
+          1024
+        ],
+        "mime": "image/jpeg"
+      }
+    ],
+    "estimatedTextureMiB": 28.0,
+    "originalColourBytesPreserved": true
+  }
+]

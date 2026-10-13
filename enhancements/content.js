@@ -23,3 +23,5 @@ export const steps = [
  {zh:['施釉覆盖','绘制后的纹样位于釉层之下。'],en:['Cover with glaze','The painted decoration sits beneath the glaze.']},
  {zh:['入窑烧成','通过烧制使胎、釉与纹饰形成成品。不同工艺的温度与烧制次数各有区别。'],en:['Fire in the kiln','Firing produces the finished body, glaze and decoration. Temperatures and firing sequences vary by technique.']}
 ];
+Object.assign(copy.zh,{previous:'上一件青花瓷',next:'下一件青花瓷',collection:'青花瓷展品切换',switchLoading:name=>`正在准备 ${name}…`,switchMoving:'星河间，移步下一件青花',switchError:'这件展品暂时无法加载，已保留当前展品。可再次切换重试。'});
+Object.assign(copy.en,{previous:'Previous porcelain',next:'Next porcelain',collection:'Blue-and-white exhibit collection',switchLoading:name=>`Preparing ${name}…`,switchMoving:'Travelling to the next porcelain',switchError:'This exhibit could not load. The current exhibit is retained; try switching again.'});
