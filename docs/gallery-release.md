@@ -1,6 +1,6 @@
 # Four exhibits in one shared scene
 
-The original blue-and-white porcelain model is joined by three independent Smithsonian CC0 scans. The same renderer, star field, black hole, pedestal, controls and tools remain in use. Previous/next buttons request one model at a time. After preparation, the camera pulls out for 0.9 seconds and approaches the selected exhibit for 1.7 seconds. Dragging, scrolling, reset, Escape, opening a panel or changing language cancels the transition. Mobile reduced-motion preference skips the new camera transition; desktop retains the approved default animation behavior.
+The original blue-and-white porcelain model is joined by three independent Smithsonian CC0 scans. The same renderer, star field, black hole, pedestal, controls and tools remain in use. Previous/next buttons request one model at a time. After preparation, the camera pulls out to the existing 40-unit distance limit for 1.05 seconds, holds for 0.3 seconds with the model swap at its midpoint, then approaches the selected exhibit for 1.65 seconds. A delayed frame still places the camera at the distant swap before beginning the approach. Dragging, scrolling, reset, Escape, opening a panel or changing language cancels the transition. Mobile reduced-motion preference skips the new camera transition; desktop retains the approved default animation behavior. The decorative line beneath the title is removed to avoid overlapping the subtitle.
 
 Models are fetched on demand. Parsing, shader compilation and texture upload happen before the camera transition; texture uploads are spread across frames. A newer selection aborts an older request and discards any late parsed candidate. The current exhibit remains visible when a download, parsing or presentation fails. A successful change releases the previous geometry, materials, textures and owned ImageBitmaps. At most the current model and one prepared candidate share GPU resources briefly; all four models are never loaded together. The HTTP cache may retain file bytes.
 
@@ -13,6 +13,8 @@ The added GLBs are plain glTF 2.0: no runtime Draco decoder, additional viewer, 
 Before this change, all 20 runtime files matched the saved release `fc667434112ff40754fb4830d050b36050c99b02`. GitHub branch `codex/backup-2026-10-13-fc66743` preserves that commit. A complete local ZIP and SHA-256 manifest are retained in `backups/2026-10-13-release-fc66743/` outside the deployed directory. ZIP SHA-256: `48de3a20eb630d5fcf471fdb7932928f3f13b62a79e89377cf46f2d543f2bc20`.
 
 Rollback can use that Netlify deployment or a new revert commit on main. Do not force-reset main or delete the historical deployment.
+
+The subsequent distant-transition and title-line adjustment preserves `151a40da16ca7ca57ebd3f7d922d48b40367f548` on branch `codex/backup-2026-10-13-151a40d` and in `backups/2026-10-13-release-151a40d/`. All 29 source and ZIP entries were checked before editing. ZIP SHA-256: `476fac0d7eca3f2f67e8fbaa7412f89997d8c719a0f103a63fde7f6ff340fc61`.
 
 ## Validation
 
