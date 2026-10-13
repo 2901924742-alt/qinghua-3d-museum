@@ -5,12 +5,12 @@ const source=fs.readFileSync(path.resolve(__dirname,'../enhancements/gallery.js'
 class Vector{clone(){return new Vector()}sub(){return this}multiplyScalar(){return this}add(){return this}lerpVectors(){return this}copy(){return this}}
 const tick=()=>new Promise(setImmediate);
 async function until(test){for(let i=0;i<100;i++){if(test())return;await tick()}throw new Error('Lifecycle test did not progress');}
-function fixture({timeout=30000,holdCompile=false,holdFrame=false,withTexture=false}={}){
+function fixture({timeout=30000,holdCompile=false,holdFrame=false,withTexture=false,reduced=false,desktop=true}={}){
  let now=0,live=1,peak=1,model={url:'original'},gallery;
  const releases=[],disposed=new Set(),signals=[],states=[],commits=[],loads=[];
  const context={AbortController,DOMException,console,performance:{now:()=>now},
   document:{body:{classList:{add(){},remove(){}}},getElementById:()=>({classList:{contains:()=>false}})},
-  window:{museumLoading:{desktopIntro:true}},matchMedia:()=>({matches:false}),
+  window:{museumLoading:{desktopIntro:desktop}},matchMedia:()=>({matches:reduced}),
   setTimeout:(fn,ms)=>setTimeout(fn,ms===30000?timeout:ms),clearTimeout,
   requestAnimationFrame:fn=>holdFrame?1:setImmediate(fn),cancelAnimationFrame:id=>{if(!holdFrame)clearImmediate(id)}
  };
@@ -50,4 +50,9 @@ async function cancelWhileFrameSuspended(){
  assert.equal(f.commits.length,0);assert.equal(f.gallery.active,false);assert.equal(f.live,1);
  console.log('Cancellation releases a candidate even when animation frames are suspended');
 }
-(async()=>{await timeoutDuringCompile();await concurrentPreparation();await cancelWhileFrameSuspended()})().catch(error=>{console.error(error);process.exitCode=1});
+async function reducedMotion(){
+ const mobile=fixture({reduced:true,desktop:false});await mobile.gallery.step(1);mobile.gallery.update();assert.equal(mobile.gallery.index,1);assert.equal(mobile.gallery.active,false);
+ const desktop=fixture({reduced:true});await desktop.gallery.step(1);desktop.gallery.update();assert.equal(desktop.gallery.index,0);desktop.setNow(3000);desktop.gallery.update();assert.equal(desktop.gallery.index,1);
+ console.log('Mobile reduced motion skips the transition; desktop keeps its approved default animation');
+}
+(async()=>{await timeoutDuringCompile();await concurrentPreparation();await cancelWhileFrameSuspended();await reducedMotion()})().catch(error=>{console.error(error);process.exitCode=1});
