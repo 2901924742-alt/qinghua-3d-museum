@@ -15,17 +15,23 @@ export function createUI(core) {
  const gallery=document.createElement('nav');gallery.className='museum-gallery';gallery.id='museumGallery';
  gallery.innerHTML='<button id="museumPrevious" type="button">‹</button><div class="gallery-caption"><span id="museumExhibitCounter"></span><strong id="museumExhibitName"></strong></div><button id="museumNext" type="button">›</button><p id="museumSwitchStatus" role="status" aria-live="polite"></p>';
  document.body.append(gallery);nodes.push(gallery);
- $('museumPrevious').onclick=()=>core.switchExhibit(-1);$('museumNext').onclick=()=>core.switchExhibit(1);
+ $('museumPrevious').onclick=()=>{closeMenu();core.switchExhibit(-1);};$('museumNext').onclick=()=>{closeMenu();core.switchExhibit(1);};
  const tools=document.createElement('nav'); tools.className='museum-tools'; tools.setAttribute('aria-label','Museum tools');
  tools.innerHTML='<button id="museumLanguage" type="button"></button><button id="museumExplore" class="desktop-tool" type="button"></button><button id="museumExport" class="desktop-tool" type="button"></button><button id="museumMore" class="mobile-more" type="button" aria-expanded="false" aria-controls="museumMenu"></button>';
  document.body.append(tools);nodes.push(tools);
  const menu=document.createElement('div');menu.id='museumMenu';menu.className='museum-menu';menu.hidden=true;
- menu.innerHTML='<button id="menuExplore" type="button"></button><button id="menuExport" type="button"></button>';document.body.append(menu);nodes.push(menu);
+ menu.innerHTML='<p id="museumMenuExhibit" class="museum-menu-exhibit"></p><button id="menuExplore" type="button"></button><button id="menuExport" type="button"></button>';document.body.append(menu);nodes.push(menu);
  const dialog=document.createElement('dialog');dialog.className='museum-dialog';dialog.id='museumDialog';dialog.setAttribute('aria-labelledby','museumPanelTitle');
  dialog.innerHTML='<section class="museum-panel"><header><h2 id="museumPanelTitle"></h2><button id="museumClose" type="button"></button></header><div id="museumPanelContent"></div></section>';document.body.append(dialog);nodes.push(dialog);
  const layer=document.createElement('div');layer.className='hotspots';layer.hidden=true;
  const buttons=hotspots.map((h,i)=>{const b=document.createElement('button');b.type='button';b.className='hotspot';b.hidden=true;b.innerHTML='<span></span>';b.dataset.hotspot=i;layer.append(b);b.addEventListener('click',()=>{selected=i;tab='details';open('explore');});return b;});document.body.append(layer);nodes.push(layer);
- const label=(id,key)=>{$(id).textContent=t(key);};
+ const label=(id,key)=>{
+  const button=$(id),text=t(key),short=key==='language'?(language==='zh'?'EN':'中文'):key==='reset'?(language==='zh'?'复位':'Reset'):key==='more'?'⋯':null;
+  if(short===null){button.textContent=text;return;}
+  button.setAttribute('aria-label',text);button.title=text;
+  button.innerHTML='<span class="full-label"></span><span class="compact-label" aria-hidden="true"></span>';
+  button.firstElementChild.textContent=text;button.lastElementChild.textContent=short;
+ };
  function translate() {
   if(window.museumLoading)window.museumLoading.language=language;
   document.documentElement.lang=language==='zh'?'zh-CN':'en';document.title=t('pageTitle');
@@ -39,10 +45,11 @@ export function createUI(core) {
  }
  function updateGallery(){
   gallery.dataset.exhibit=exhibit.id;
-  gallery.setAttribute('aria-label',t('collection'));gallery.setAttribute('aria-busy',String(switchState==='loading'||switchState==='moving'));
+  gallery.setAttribute('aria-label',t('collection')+': '+t('exhibit'));gallery.setAttribute('aria-busy',String(switchState==='loading'||switchState==='moving'));
   $('museumPrevious').setAttribute('aria-label',t('previous'));$('museumNext').setAttribute('aria-label',t('next'));
   $('museumExhibitCounter').textContent=`${String(currentIndex+1).padStart(2,'0')} / ${String(exhibits.length).padStart(2,'0')}`;
   $('museumExhibitName').textContent=t('exhibit');
+  $('museumMenuExhibit').textContent=t('exhibit');
   const status=$('museumSwitchStatus');status.hidden=switchState==='idle';status.textContent=switchState==='loading'?t('switchLoading',exhibits[pendingIndex][language].exhibit):switchState==='moving'?t('switchMoving'):switchState==='error'?t('switchError'):'';
  }
  function updateLoading(){
@@ -50,9 +57,11 @@ export function createUI(core) {
   $('loadingTitle').textContent=t(loadingError?'failed':'loading');
   $('loadingStatus').textContent=loadingError?t(loadingError):loadingProgress===null?t('modelLoading'):t('progress',loadingProgress);
  }
- function closeMenu(){menu.hidden=true;$('museumMore').setAttribute('aria-expanded','false');}
+ function closeMenu(){const focused=menu.contains(document.activeElement);menu.hidden=true;$('museumMore').setAttribute('aria-expanded','false');if(focused)($('museumMore').getClientRects().length?$('museumMore'):$('museumLanguage')).focus({preventScroll:true});}
  function open(kind) {
+  const fromMenu=!menu.hidden;
   core.cancelIntro();closeMenu();
+  if(fromMenu)$('museumMore').focus({preventScroll:true});
   if(panel){panel=kind;tab='details';renderPanel();return;}
   saved={infoHidden:$('infoBox').classList.contains('hide'),autoRotate:core.controls.autoRotate,enabled:core.controls.enabled,focus:document.activeElement};
   core.hideInfo();core.controls.autoRotate=false;core.controls.enabled=false;document.body.classList.add('museum-panel-open');
@@ -139,8 +148,8 @@ export function createUI(core) {
    $('exportStatus').textContent='';
   }catch{if(token===exportToken&&panel==='export')$('exportStatus').textContent=t('exportError');}
  }
- $('museumLanguage').onclick=()=>{core.cancelIntro();language=language==='zh'?'en':'zh';try{localStorage.setItem('museum-language',language);}catch{}translate();};
- $('museumMore').onclick=()=>{menu.hidden=!menu.hidden;$('museumMore').setAttribute('aria-expanded',String(!menu.hidden));};
+ $('museumLanguage').onclick=()=>{closeMenu();core.cancelIntro();language=language==='zh'?'en':'zh';try{localStorage.setItem('museum-language',language);}catch{}translate();};
+ $('museumMore').onclick=()=>{if(!menu.hidden){closeMenu();return;}menu.hidden=false;$('museumMore').setAttribute('aria-expanded','true');$('menuExplore').focus({preventScroll:true});};
  ['museumExplore','menuExplore'].forEach(id=>{$(id).onclick=()=>{tab='details';open('explore');};});
  ['museumExport','menuExport'].forEach(id=>{$(id).onclick=()=>open('export');});
  $('museumClose').onclick=close;listen(dialog,'cancel',e=>{e.preventDefault();close();});
@@ -148,14 +157,15 @@ export function createUI(core) {
  listen(dialog,'click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close();}});
  listen(document,'pointerdown',e=>{if(!menu.contains(e.target)&&!tools.contains(e.target))closeMenu();});
  listen(document,'keydown',e=>{if(e.key==='Escape'&&!menu.hidden){closeMenu();$('museumMore').focus();}});
+ for(const query of ['(max-width:900px)','(max-width:560px), (hover:none) and (pointer:coarse) and (max-width:960px) and (max-height:560px)'])listen(matchMedia(query),'change',closeMenu);
  const api={t,translate,get language(){return language;},get panel(){return panel;},get hotspotsOn(){return hotspotsOn;},buttons,
   setExhibit(index){close();exportToken++;captured=unwrapCanvas=null;currentIndex=index;exhibit=exhibits[index];hotspots=exhibit.hotspots;selected=0;buttons.forEach(b=>b.hidden=true);translate();},
   galleryState(index,target,state){currentIndex=index;pendingIndex=target;switchState=state;updateGallery();},
   loading(loaded,total){loadingProgress=total>0?Math.min(100,Math.max(0,Math.round(loaded/total*100))):null;updateLoading();},
   loadError(key){loadingError=key;$('loading').classList.add('failed');updateLoading();},
   close,hideHotspots(){hotspotsOn=false;layer.hidden=true;},
-  dispose(){close();lifetime.abort();exportToken++;if(previewURL)URL.revokeObjectURL(previewURL);captured=unwrapCanvas=null;nodes.forEach(node=>node.remove());}
+  dispose(){close();lifetime.abort();document.body.classList.remove('museum-toolbar-ready');exportToken++;if(previewURL)URL.revokeObjectURL(previewURL);captured=unwrapCanvas=null;nodes.forEach(node=>node.remove());}
  };
- translate();return api;
- } catch(error) {lifetime.abort();nodes.forEach(node=>node.remove());throw error;}
+ translate();document.body.classList.add('museum-toolbar-ready');return api;
+ } catch(error) {lifetime.abort();document.body.classList.remove('museum-toolbar-ready');nodes.forEach(node=>node.remove());throw error;}
 }
