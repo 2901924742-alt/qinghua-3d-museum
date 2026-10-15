@@ -21,6 +21,7 @@ export function createUI(core) {
  document.body.append(tools);nodes.push(tools);
  const menu=document.createElement('div');menu.id='museumMenu';menu.className='museum-menu';menu.hidden=true;
  menu.innerHTML='<button id="menuExplore" type="button"></button><button id="menuExport" type="button"></button>';document.body.append(menu);nodes.push(menu);
+ const viewButton=document.createElement('button');viewButton.id='museumView';viewButton.type='button';document.body.append(viewButton);nodes.push(viewButton);
  const returnButton=document.createElement('button');returnButton.id='museumReturn';returnButton.type='button';returnButton.hidden=true;document.body.append(returnButton);nodes.push(returnButton);
  const dialog=document.createElement('dialog');dialog.className='museum-dialog';dialog.id='museumDialog';dialog.setAttribute('aria-labelledby','museumPanelTitle');
  dialog.innerHTML='<section class="museum-panel"><header><h2 id="museumPanelTitle"></h2><button id="museumClose" type="button"></button></header><div id="museumPanelContent"></div></section>';document.body.append(dialog);nodes.push(dialog);
@@ -33,7 +34,7 @@ export function createUI(core) {
   document.querySelector('.title').textContent=t('title');document.querySelector('.sub').textContent=t('sub');
   document.querySelector('.info h2').textContent=t('exhibit');$('infoBox').querySelector('p').innerHTML=exhibit[language].intro??(language==='zh'?original.intro:introductionEN);
   document.querySelector('.tip').textContent=t('tip');
-  [['museumLanguage','language'],['museumExplore','explore'],['menuExplore','explore'],['museumExport','export'],['menuExport','export'],['museumMore','more'],['museumClose','close'],['museumReturn','returnToMuseum'],['resetViewBtn','reset'],['hideBtn','hide'],['restoreBtn','restore'],['retryBtn','retry']].forEach(([id,key])=>label(id,key));
+  [['museumLanguage','language'],['museumExplore','explore'],['menuExplore','explore'],['museumExport','export'],['menuExport','export'],['museumMore','more'],['museumClose','close'],['museumView','viewArtwork'],['museumReturn','returnToMuseum'],['resetViewBtn','reset'],['hideBtn','hide'],['restoreBtn','restore'],['retryBtn','retry']].forEach(([id,key])=>label(id,key));
   tools.setAttribute('aria-label',language==='zh'?'展馆工具':'Museum tools');
   buttons.forEach((b,i)=>{b.setAttribute('aria-label',hotspots[i][language][0]);b.querySelector('span').textContent=hotspots[i][language][0];});
   updateGallery();updateLoading();if(panel) renderPanel();
@@ -43,7 +44,7 @@ export function createUI(core) {
   gallery.setAttribute('aria-label',t('collection')+': '+t('exhibit'));gallery.setAttribute('aria-busy',String(switchState==='loading'||switchState==='moving'));
   $('museumPrevious').setAttribute('aria-label',t('previous'));$('museumNext').setAttribute('aria-label',t('next'));
   $('museumExhibitCounter').textContent=`${String(currentIndex+1).padStart(2,'0')} / ${String(exhibits.length).padStart(2,'0')}`;
-  $('museumExhibitName').textContent=t('exhibit');
+  $('museumExhibitName').textContent=t('exhibit');$('museumExhibitName').title=t('exhibit');
   const status=$('museumSwitchStatus');status.hidden=switchState==='idle';status.textContent=switchState==='loading'?t('switchLoading',exhibits[pendingIndex][language].exhibit):switchState==='moving'?t('switchMoving'):switchState==='error'?t('switchError'):'';
  }
  function updateLoading(){
@@ -54,7 +55,7 @@ export function createUI(core) {
  function closeMenu(){const focused=menu.contains(document.activeElement);menu.hidden=true;$('museumMore').setAttribute('aria-expanded','false');if(focused)($('museumMore').getClientRects().length?$('museumMore'):$('museumLanguage')).focus({preventScroll:true});}
  function stopViewing(){
   if(!viewing)return;viewing=false;document.body.classList.remove('museum-viewing');returnButton.hidden=true;
-  ($('museumExplore').getClientRects().length?$('museumExplore'):$('museumMore')).focus({preventScroll:true});
+  viewButton.focus({preventScroll:true});
  }
  function startViewing(){
   if(viewing)return;core.cancelIntro();closeMenu();close();viewing=true;
@@ -90,10 +91,9 @@ export function createUI(core) {
    content.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{tab=b.dataset.tab;renderPanel();content.querySelector(`[data-tab="${tab}"]`).focus();}));
    const knowledge=$('museumKnowledge');
    if(tab==='details') {
-    knowledge.innerHTML=`<p>${t('exploreIntro')}</p><div class="museum-tabs">${hotspots.map((h,i)=>`<button type="button" data-detail="${i}" aria-pressed="${selected===i}">${h[language][0]}</button>`).join('')}</div><h3>${hotspots[selected][language][0]}</h3><p>${hotspots[selected][language][1]}</p><div class="museum-actions"><button id="toggleHotspots" type="button">${t(hotspotsOn?'hotspotOff':'hotspotHint')}</button><button id="museumView" type="button">${t('viewArtwork')}</button></div><p class="note">${t('scope')}</p>`+sourcesHTML();
+    knowledge.innerHTML=`<p>${t('exploreIntro')}</p><div class="museum-tabs">${hotspots.map((h,i)=>`<button type="button" data-detail="${i}" aria-pressed="${selected===i}">${h[language][0]}</button>`).join('')}</div><h3>${hotspots[selected][language][0]}</h3><p>${hotspots[selected][language][1]}</p><button id="toggleHotspots" type="button">${t(hotspotsOn?'hotspotOff':'hotspotHint')}</button><p class="note">${t('scope')}</p>`+sourcesHTML();
     knowledge.querySelectorAll('[data-detail]').forEach(b=>b.addEventListener('click',()=>{selected=+b.dataset.detail;renderPanel();$('museumPanelContent').querySelector(`[data-detail="${selected}"]`).focus();}));
     $('toggleHotspots').onclick=()=>{hotspotsOn=!hotspotsOn;layer.hidden=!hotspotsOn;close();};
-    $('museumView').onclick=startViewing;
    } else if(tab==='craft') {
     knowledge.innerHTML=steps.map((step,i)=>`<article class="craft-step"><h3>${String(i+1).padStart(2,'0')} · ${step[language][0]}</h3><p>${step[language][1]}</p></article>`).join('')+`<p class="note">${t('craftNote')}</p>`+sourcesHTML();
    } else {
@@ -158,6 +158,7 @@ export function createUI(core) {
  ['museumExplore','menuExplore'].forEach(id=>{$(id).onclick=()=>{tab='details';open('explore');};});
  ['museumExport','menuExport'].forEach(id=>{$(id).onclick=()=>open('export');});
  $('museumClose').onclick=close;listen(dialog,'cancel',e=>{e.preventDefault();close();});
+ listen(viewButton,'click',startViewing);
  listen(returnButton,'click',stopViewing);
  listen(dialog,'keydown',e=>{if(e.key!=='Tab')return;const focusable=[...dialog.querySelectorAll('button:not([disabled]),a[href]')].filter(el=>el.getClientRects().length&&!el.hidden);const first=focusable[0],last=focusable.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}});
  listen(dialog,'click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close();}});

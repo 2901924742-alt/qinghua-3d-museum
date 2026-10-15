@@ -8,11 +8,11 @@ const root=path.resolve(__dirname,'..'),output=process.env.MUSEUM_QA_OUTPUT||pat
     if(await page.locator('html').getAttribute('lang')!==language)await page.locator('#museumLanguage').click();
     const r=await page.evaluate(()=>{const rect=e=>{const r=e.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom}};return {nav:rect(document.getElementById('museumGallery')),info:rect(document.getElementById('infoBox'))}});
     assert(r.nav.left>=0&&r.nav.right<=size.width);assert(r.nav.bottom<=r.info.top||r.nav.left>=r.info.right||r.nav.right<=r.info.left,JSON.stringify({size,language,r}));
-    const targets=await page.evaluate(()=>['museumPrevious','museumNext','museumLanguage','resetViewBtn','museumMore'].map(id=>{
+    const targets=await page.evaluate(()=>['museumPrevious','museumNext','museumLanguage','resetViewBtn','museumMore','museumView'].map(id=>{
      const button=document.getElementById(id),r=button.getBoundingClientRect();return {id,x:r.x,y:r.y,width:r.width,height:r.height,hit:document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('button')?.id};
     }));
     for(const b of targets){assert(b.width>=44);assert(b.height>=44);assert.equal(b.hit,b.id);assert(b.x>=0&&b.x+b.width<=size.width);}
-    assert.equal(targets[0].y,targets[1].y);
+    assert.equal(targets[0].y,targets[1].y);if(size.width<=560){assert.equal(targets.find(b=>b.id==='museumMore').width,60);assert(r.nav.right-r.nav.left<=210);}
     for(let i=0;i<targets.length;i++)for(let j=i+1;j<targets.length;j++){const a=targets[i],b=targets[j];assert(a.x+a.width<=b.x||b.x+b.width<=a.x||a.y+a.height<=b.y||b.y+b.height<=a.y);}
     await page.locator('#museumMore').click();assert.equal(await page.locator('#menuExplore').evaluate(e=>e===document.activeElement),true);
     await page.keyboard.press('Escape');assert.equal(await page.locator('#museumMenu').isHidden(),true);assert.equal(await page.locator('#museumMore').evaluate(e=>e===document.activeElement),true);
