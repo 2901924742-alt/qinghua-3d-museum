@@ -20,7 +20,9 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  listen(renderer.domElement,'pointermove',e=>{const p=tapPointers.get(e.pointerId);if(p&&Math.hypot(e.clientX-p.x,e.clientY-p.y)>7)p.moved=true;});
  listen(renderer.domElement,'pointercancel',e=>{tapPointers.delete(e.pointerId);multiplePointers=true;pendingHotspot=null;});
  listen(renderer.domElement,'pointerup',e=>{const p=tapPointers.get(e.pointerId);tapPointers.delete(e.pointerId);if(!p||p.moved||multiplePointers||e.button!==0||!ui.hotspotsOn||ui.panel)return;
-  pendingHotspot=ui.buttons.find(b=>{if(b.hidden)return false;const r=b.getBoundingClientRect();return e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom;});
+  pendingHotspot=ui.buttons.find(b=>!b.hidden&&[b,b.querySelector('span')].some(target=>{
+   const r=target.getBoundingClientRect();return e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom;
+  }));
  });
  // Open on the completed native click; opening during pointerup can retarget a touch's
  // following compatibility click to the dialog backdrop and immediately close it.

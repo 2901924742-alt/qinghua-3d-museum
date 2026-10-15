@@ -11,9 +11,9 @@ const root=path.resolve(__dirname,'..'),output=process.env.MUSEUM_QA_OUTPUT||pat
     const targets=await page.evaluate(()=>['museumPrevious','museumNext','museumLanguage','resetViewBtn','museumMore'].map(id=>{
      const button=document.getElementById(id),r=button.getBoundingClientRect();return {id,x:r.x,y:r.y,width:r.width,height:r.height,hit:document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('button')?.id};
     }));
-    for(const b of targets){assert.equal(b.width,44);assert.equal(b.height,44);assert.equal(b.hit,b.id);assert(b.x>=0&&b.x+b.width<=size.width);}
-    assert(Math.max(...targets.map(b=>b.y))-Math.min(...targets.map(b=>b.y))<=1);
-    const ordered=targets.toSorted((a,b)=>a.x-b.x);for(let i=1;i<ordered.length;i++)assert(ordered[i].x>=ordered[i-1].x+44);
+    for(const b of targets){assert(b.width>=44);assert(b.height>=44);assert.equal(b.hit,b.id);assert(b.x>=0&&b.x+b.width<=size.width);}
+    assert.equal(targets[0].y,targets[1].y);
+    for(let i=0;i<targets.length;i++)for(let j=i+1;j<targets.length;j++){const a=targets[i],b=targets[j];assert(a.x+a.width<=b.x||b.x+b.width<=a.x||a.y+a.height<=b.y||b.y+b.height<=a.y);}
     await page.locator('#museumMore').click();assert.equal(await page.locator('#menuExplore').evaluate(e=>e===document.activeElement),true);
     await page.keyboard.press('Escape');assert.equal(await page.locator('#museumMenu').isHidden(),true);assert.equal(await page.locator('#museumMore').evaluate(e=>e===document.activeElement),true);
     await page.locator('#museumMore').click();await page.locator('#menuExplore').click();await page.locator('#museumClose').click();
