@@ -1,5 +1,6 @@
-const {pw,root,output}=require('./gallery.cjs');const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
-(async()=>{const url=process.argv[2];assert(url);const webkit=process.argv.includes('--webkit'),tag=webkit?'layout-preview-webkit':'layout-preview';const browser=webkit?await pw.webkit.launch({executablePath:path.resolve(__dirname,'../../asset-tools/browsers/webkit-2336/Playwright.exe'),headless:true}):await pw.chromium.launch({channel:'msedge',headless:true});const results=[];
+const pw=require('playwright'),fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const root=path.resolve(__dirname,'..'),output=process.env.MUSEUM_QA_OUTPUT||path.resolve(root,'../outputs/museum-layout');fs.mkdirSync(output,{recursive:true});
+(async()=>{const url=process.argv[2];assert(url);const webkit=process.argv.includes('--webkit'),tag=webkit?'layout-preview-webkit':'layout-preview';const browser=webkit?await pw.webkit.launch({headless:true}):await pw.chromium.launch({channel:'msedge',headless:true});const results=[];
  try{const context=await browser.newContext({viewport:{width:430,height:932},deviceScaleFactor:3,isMobile:true,hasTouch:true}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(String(e)));
   await page.goto(url);await page.waitForFunction(()=>window.museumEnhancements&&document.getElementById('loading').style.display==='none');await page.waitForFunction(()=>!museumEnhancements.introActive);
   for(const size of [{width:430,height:932},{width:390,height:844},{width:360,height:740},{width:320,height:568},{width:844,height:390}]){
