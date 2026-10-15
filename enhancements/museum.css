@@ -1,9 +1,9 @@
 :root{--cobalt:#1f3f8f;--ice:#a9c9ff;--paper:#f2f6ff}
 .info{border-color:rgba(116,160,239,.26);background:rgba(10,20,39,.58);max-height:calc(100dvh - 150px);overflow-y:auto}
-#hideBtn,#restoreBtn,#resetViewBtn,.museum-tools button,.museum-menu button,.museum-panel button,.museum-panel a.download{border-color:rgba(136,177,250,.4);background:rgba(17,36,76,.65);color:var(--paper)}
+#hideBtn,#restoreBtn,#resetViewBtn,#museumReturn,.museum-tools button,.museum-menu button,.museum-panel button,.museum-panel a.download{border-color:rgba(136,177,250,.4);background:rgba(17,36,76,.65);color:var(--paper)}
 #resetViewBtn{top:96px;right:30px}
 .museum-tools{position:fixed;right:30px;top:24px;display:flex;gap:8px;z-index:25}
-.museum-tools button,.museum-menu button,.museum-panel button,.museum-panel a.download{min-height:44px;padding:10px 14px;border:1px solid rgba(136,177,250,.4);border-radius:12px;font:inherit;font-size:12px;cursor:pointer;text-decoration:none}
+.museum-tools button,.museum-menu button,.museum-panel button,.museum-panel a.download,#museumReturn{min-height:44px;padding:10px 14px;border:1px solid rgba(136,177,250,.4);border-radius:12px;font:inherit;font-size:12px;cursor:pointer;text-decoration:none}
 button:focus-visible,a:focus-visible{outline:2px solid var(--ice);outline-offset:3px}
 .museum-tools .mobile-more{display:none}
 .info-header h2{min-width:0;overflow-wrap:anywhere}html[lang=en] #hideBtn{max-width:100px;white-space:normal}
@@ -42,3 +42,6 @@ body.museum-panel-open .tip,body.museum-panel-open #restoreBtn{visibility:hidden
 .museum-switching .info,.museum-switching .hotspots,.museum-switching .tip,.museum-switching #restoreBtn{visibility:hidden!important}
 @media(max-width:560px){.museum-gallery{left:auto;right:16px;top:140px;width:min(240px,calc(100% - 132px));gap:6px;padding:7px 8px}.gallery-caption strong{font-size:11px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.info{max-height:calc(100dvh - 254px)}}
 @media(max-width:560px){.hotspot span{width:max-content}}
+.museum-viewing .title,.museum-viewing .sub,.museum-viewing .info,.museum-viewing .tip,.museum-viewing #restoreBtn,.museum-viewing #resetViewBtn,.museum-viewing .museum-tools,.museum-viewing .museum-menu,.museum-viewing .museum-gallery,.museum-viewing .hotspots{visibility:hidden!important}
+.museum-viewing .info,.museum-viewing .tip{transition:none}
+#museumReturn{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:max(16px,env(safe-area-inset-bottom));z-index:26}

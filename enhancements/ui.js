@@ -9,7 +9,7 @@ export function createUI(core) {
  const original = {intro:$('infoBox').querySelector('p').innerHTML};
  let language='zh'; try { if(localStorage.getItem('museum-language')==='en') language='en'; } catch {}
  let panel=null, saved=null, tab='details', selected=0, hotspotsOn=false, previewURL=null, captured=null, unwrapCanvas=null, exportToken=0;
- let loadingProgress=null, loadingError=window.museumLoadErrorKey || null;
+ let loadingProgress=null, loadingError=window.museumLoadErrorKey || null, viewing=false;
  let exhibit=exhibits[0],hotspots=exhibit.hotspots,currentIndex=0,pendingIndex=0,switchState='idle';
  const t = (key,...args) => {const value=exhibit[language][key]??copy[language][key];return typeof value==='function'?value(...args):value;};
  const gallery=document.createElement('nav');gallery.className='museum-gallery';gallery.id='museumGallery';
@@ -21,6 +21,7 @@ export function createUI(core) {
  document.body.append(tools);nodes.push(tools);
  const menu=document.createElement('div');menu.id='museumMenu';menu.className='museum-menu';menu.hidden=true;
  menu.innerHTML='<button id="menuExplore" type="button"></button><button id="menuExport" type="button"></button>';document.body.append(menu);nodes.push(menu);
+ const returnButton=document.createElement('button');returnButton.id='museumReturn';returnButton.type='button';returnButton.hidden=true;document.body.append(returnButton);nodes.push(returnButton);
  const dialog=document.createElement('dialog');dialog.className='museum-dialog';dialog.id='museumDialog';dialog.setAttribute('aria-labelledby','museumPanelTitle');
  dialog.innerHTML='<section class="museum-panel"><header><h2 id="museumPanelTitle"></h2><button id="museumClose" type="button"></button></header><div id="museumPanelContent"></div></section>';document.body.append(dialog);nodes.push(dialog);
  const layer=document.createElement('div');layer.className='hotspots';layer.hidden=true;
@@ -32,7 +33,7 @@ export function createUI(core) {
   document.querySelector('.title').textContent=t('title');document.querySelector('.sub').textContent=t('sub');
   document.querySelector('.info h2').textContent=t('exhibit');$('infoBox').querySelector('p').innerHTML=exhibit[language].intro??(language==='zh'?original.intro:introductionEN);
   document.querySelector('.tip').textContent=t('tip');
-  [['museumLanguage','language'],['museumExplore','explore'],['menuExplore','explore'],['museumExport','export'],['menuExport','export'],['museumMore','more'],['museumClose','close'],['resetViewBtn','reset'],['hideBtn','hide'],['restoreBtn','restore'],['retryBtn','retry']].forEach(([id,key])=>label(id,key));
+  [['museumLanguage','language'],['museumExplore','explore'],['menuExplore','explore'],['museumExport','export'],['menuExport','export'],['museumMore','more'],['museumClose','close'],['museumReturn','returnToMuseum'],['resetViewBtn','reset'],['hideBtn','hide'],['restoreBtn','restore'],['retryBtn','retry']].forEach(([id,key])=>label(id,key));
   tools.setAttribute('aria-label',language==='zh'?'展馆工具':'Museum tools');
   buttons.forEach((b,i)=>{b.setAttribute('aria-label',hotspots[i][language][0]);b.querySelector('span').textContent=hotspots[i][language][0];});
   updateGallery();updateLoading();if(panel) renderPanel();
@@ -51,7 +52,17 @@ export function createUI(core) {
   $('loadingStatus').textContent=loadingError?t(loadingError):loadingProgress===null?t('modelLoading'):t('progress',loadingProgress);
  }
  function closeMenu(){const focused=menu.contains(document.activeElement);menu.hidden=true;$('museumMore').setAttribute('aria-expanded','false');if(focused)($('museumMore').getClientRects().length?$('museumMore'):$('museumLanguage')).focus({preventScroll:true});}
+ function stopViewing(){
+  if(!viewing)return;viewing=false;document.body.classList.remove('museum-viewing');returnButton.hidden=true;
+  ($('museumExplore').getClientRects().length?$('museumExplore'):$('museumMore')).focus({preventScroll:true});
+ }
+ function startViewing(){
+  if(viewing)return;core.cancelIntro();closeMenu();close();viewing=true;
+  buttons.forEach(button=>button.hidden=true);
+  document.body.classList.add('museum-viewing');returnButton.hidden=false;returnButton.focus({preventScroll:true});
+ }
  function open(kind) {
+  stopViewing();
   const fromMenu=!menu.hidden;
   core.cancelIntro();closeMenu();
   if(fromMenu)$('museumMore').focus({preventScroll:true});
@@ -79,9 +90,10 @@ export function createUI(core) {
    content.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{tab=b.dataset.tab;renderPanel();content.querySelector(`[data-tab="${tab}"]`).focus();}));
    const knowledge=$('museumKnowledge');
    if(tab==='details') {
-    knowledge.innerHTML=`<p>${t('exploreIntro')}</p><div class="museum-tabs">${hotspots.map((h,i)=>`<button type="button" data-detail="${i}" aria-pressed="${selected===i}">${h[language][0]}</button>`).join('')}</div><h3>${hotspots[selected][language][0]}</h3><p>${hotspots[selected][language][1]}</p><button id="toggleHotspots" type="button">${t(hotspotsOn?'hotspotOff':'hotspotHint')}</button><p class="note">${t('scope')}</p>`+sourcesHTML();
+    knowledge.innerHTML=`<p>${t('exploreIntro')}</p><div class="museum-tabs">${hotspots.map((h,i)=>`<button type="button" data-detail="${i}" aria-pressed="${selected===i}">${h[language][0]}</button>`).join('')}</div><h3>${hotspots[selected][language][0]}</h3><p>${hotspots[selected][language][1]}</p><div class="museum-actions"><button id="toggleHotspots" type="button">${t(hotspotsOn?'hotspotOff':'hotspotHint')}</button><button id="museumView" type="button">${t('viewArtwork')}</button></div><p class="note">${t('scope')}</p>`+sourcesHTML();
     knowledge.querySelectorAll('[data-detail]').forEach(b=>b.addEventListener('click',()=>{selected=+b.dataset.detail;renderPanel();$('museumPanelContent').querySelector(`[data-detail="${selected}"]`).focus();}));
     $('toggleHotspots').onclick=()=>{hotspotsOn=!hotspotsOn;layer.hidden=!hotspotsOn;close();};
+    $('museumView').onclick=startViewing;
    } else if(tab==='craft') {
     knowledge.innerHTML=steps.map((step,i)=>`<article class="craft-step"><h3>${String(i+1).padStart(2,'0')} · ${step[language][0]}</h3><p>${step[language][1]}</p></article>`).join('')+`<p class="note">${t('craftNote')}</p>`+sourcesHTML();
    } else {
@@ -146,18 +158,19 @@ export function createUI(core) {
  ['museumExplore','menuExplore'].forEach(id=>{$(id).onclick=()=>{tab='details';open('explore');};});
  ['museumExport','menuExport'].forEach(id=>{$(id).onclick=()=>open('export');});
  $('museumClose').onclick=close;listen(dialog,'cancel',e=>{e.preventDefault();close();});
+ listen(returnButton,'click',stopViewing);
  listen(dialog,'keydown',e=>{if(e.key!=='Tab')return;const focusable=[...dialog.querySelectorAll('button:not([disabled]),a[href]')].filter(el=>el.getClientRects().length&&!el.hidden);const first=focusable[0],last=focusable.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}});
  listen(dialog,'click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close();}});
  listen(document,'pointerdown',e=>{if(!menu.contains(e.target)&&!tools.contains(e.target))closeMenu();});
- listen(document,'keydown',e=>{if(e.key==='Escape'&&!menu.hidden){closeMenu();$('museumMore').focus();}});
+ listen(document,'keydown',e=>{if(e.key==='Escape'){stopViewing();if(!menu.hidden){closeMenu();$('museumMore').focus();}}});
  listen(matchMedia('(max-width:900px)'),'change',closeMenu);
- const api={t,translate,get language(){return language;},get panel(){return panel;},get hotspotsOn(){return hotspotsOn;},buttons,
-  setExhibit(index){close();exportToken++;captured=unwrapCanvas=null;currentIndex=index;exhibit=exhibits[index];hotspots=exhibit.hotspots;selected=0;buttons.forEach(b=>b.hidden=true);translate();},
+ const api={t,translate,get language(){return language;},get panel(){return panel;},get hotspotsOn(){return hotspotsOn&&!viewing;},buttons,
+  setExhibit(index){stopViewing();close();exportToken++;captured=unwrapCanvas=null;currentIndex=index;exhibit=exhibits[index];hotspots=exhibit.hotspots;selected=0;buttons.forEach(b=>b.hidden=true);translate();},
   galleryState(index,target,state){currentIndex=index;pendingIndex=target;switchState=state;updateGallery();},
   loading(loaded,total){loadingProgress=total>0?Math.min(100,Math.max(0,Math.round(loaded/total*100))):null;updateLoading();},
   loadError(key){loadingError=key;$('loading').classList.add('failed');updateLoading();},
   close,hideHotspots(){hotspotsOn=false;layer.hidden=true;},
-  dispose(){close();lifetime.abort();exportToken++;if(previewURL)URL.revokeObjectURL(previewURL);captured=unwrapCanvas=null;nodes.forEach(node=>node.remove());}
+  dispose(){stopViewing();close();lifetime.abort();exportToken++;if(previewURL)URL.revokeObjectURL(previewURL);captured=unwrapCanvas=null;nodes.forEach(node=>node.remove());}
  };
  translate();return api;
  } catch(error) {lifetime.abort();nodes.forEach(node=>node.remove());throw error;}
