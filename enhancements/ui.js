@@ -17,10 +17,10 @@ export function createUI(core) {
  document.body.append(gallery);nodes.push(gallery);
  $('museumPrevious').onclick=()=>{closeMenu();core.switchExhibit(-1);};$('museumNext').onclick=()=>{closeMenu();core.switchExhibit(1);};
  const tools=document.createElement('nav'); tools.className='museum-tools'; tools.setAttribute('aria-label','Museum tools');
- tools.innerHTML='<button id="museumLanguage" type="button"></button><button id="museumExplore" class="desktop-tool" type="button"></button><button id="museumExport" class="desktop-tool" type="button"></button><button id="museumMore" class="mobile-more" type="button" aria-expanded="false" aria-controls="museumMenu"></button>';
+ tools.innerHTML='<button id="museumLanguage" type="button"></button><button id="museumExplore" class="desktop-tool" type="button"></button><button id="museumExport" class="desktop-tool" type="button"></button><button id="museumGesture" class="desktop-tool" type="button"></button><button id="museumMore" class="mobile-more" type="button" aria-expanded="false" aria-controls="museumMenu"></button>';
  document.body.append(tools);nodes.push(tools);
  const menu=document.createElement('div');menu.id='museumMenu';menu.className='museum-menu';menu.hidden=true;
- menu.innerHTML='<button id="menuExplore" type="button"></button><button id="menuExport" type="button"></button>';document.body.append(menu);nodes.push(menu);
+ menu.innerHTML='<button id="menuExplore" type="button"></button><button id="menuExport" type="button"></button><button id="menuGesture" type="button"></button>';document.body.append(menu);nodes.push(menu);
  const viewButton=document.createElement('button');viewButton.id='museumView';viewButton.type='button';document.body.append(viewButton);nodes.push(viewButton);
  const returnButton=document.createElement('button');returnButton.id='museumReturn';returnButton.type='button';returnButton.hidden=true;document.body.append(returnButton);nodes.push(returnButton);
  const dialog=document.createElement('dialog');dialog.className='museum-dialog';dialog.id='museumDialog';dialog.setAttribute('aria-labelledby','museumPanelTitle');
@@ -36,6 +36,7 @@ export function createUI(core) {
   document.querySelector('.tip').textContent=t('tip');
   [['museumLanguage','language'],['museumExplore','explore'],['menuExplore','explore'],['museumExport','export'],['menuExport','export'],['museumMore','more'],['museumClose','close'],['museumView','viewArtwork'],['museumReturn','returnToMuseum'],['resetViewBtn','reset'],['hideBtn','hide'],['restoreBtn','restore'],['retryBtn','retry']].forEach(([id,key])=>label(id,key));
   tools.setAttribute('aria-label',language==='zh'?'展馆工具':'Museum tools');
+  ['museumGesture','menuGesture'].forEach(id=>{$(id).textContent=language==='zh'?'手势粒子':'Hand particles';});
   buttons.forEach((b,i)=>{b.setAttribute('aria-label',hotspots[i][language][0]);b.querySelector('span').textContent=hotspots[i][language][0];});
   updateGallery();updateLoading();if(panel) renderPanel();
  }
@@ -50,7 +51,7 @@ export function createUI(core) {
  function updateLoading(){
   if($('loading').style.display==='none') return;
   $('loadingTitle').textContent=t(loadingError?'failed':'loading');
-  $('loadingStatus').textContent=loadingError?t(loadingError):loadingProgress===null?t('modelLoading'):t('progress',loadingProgress);
+  $('loadingStatus').textContent=loadingError?t(loadingError):window.museumLoading?.statusKey?t(window.museumLoading.statusKey):loadingProgress===null?t('modelLoading'):t('progress',loadingProgress);
  }
  function closeMenu(){const focused=menu.contains(document.activeElement);menu.hidden=true;$('museumMore').setAttribute('aria-expanded','false');if(focused)($('museumMore').getClientRects().length?$('museumMore'):$('museumLanguage')).focus({preventScroll:true});}
  function stopViewing(){
@@ -91,7 +92,7 @@ export function createUI(core) {
    content.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{tab=b.dataset.tab;renderPanel();content.querySelector(`[data-tab="${tab}"]`).focus();}));
    const knowledge=$('museumKnowledge');
    if(tab==='details') {
-    knowledge.innerHTML=`<p>${t('exploreIntro')}</p><div class="museum-tabs">${hotspots.map((h,i)=>`<button type="button" data-detail="${i}" aria-pressed="${selected===i}">${h[language][0]}</button>`).join('')}</div><h3>${hotspots[selected][language][0]}</h3><p>${hotspots[selected][language][1]}</p><button id="toggleHotspots" type="button">${t(hotspotsOn?'hotspotOff':'hotspotHint')}</button><p class="note">${t('scope')}</p>`+sourcesHTML();
+    knowledge.innerHTML=`<p>${t('exploreIntro')}</p><div class="museum-tabs">${hotspots.map((h,i)=>`<button type="button" data-detail="${i}" aria-pressed="${selected===i}">${h[language][0]}</button>`).join('')}</div><h3>${hotspots[selected][language][0]}</h3><p>${hotspots[selected][language][1]}</p><button id="toggleHotspots" type="button">${t(hotspotsOn?'hotspotOff':'hotspotHint')}</button><p class="note">${t('scope')}</p><p class="note">${language==='zh'?'内腔已添加素白展示补面；内壁厚度与内底形态并非实测，不作为文物结构依据。':'A plain white display lining completes the cavity. Its thickness and inner floor are not measured reconstructions of the object.'}</p>`+sourcesHTML();
     knowledge.querySelectorAll('[data-detail]').forEach(b=>b.addEventListener('click',()=>{selected=+b.dataset.detail;renderPanel();$('museumPanelContent').querySelector(`[data-detail="${selected}"]`).focus();}));
     $('toggleHotspots').onclick=()=>{hotspotsOn=!hotspotsOn;layer.hidden=!hotspotsOn;close();};
    } else if(tab==='craft') {
@@ -157,6 +158,7 @@ export function createUI(core) {
  $('museumMore').onclick=()=>{if(!menu.hidden){closeMenu();return;}menu.hidden=false;$('museumMore').setAttribute('aria-expanded','true');$('menuExplore').focus({preventScroll:true});};
  ['museumExplore','menuExplore'].forEach(id=>{$(id).onclick=()=>{tab='details';open('explore');};});
  ['museumExport','menuExport'].forEach(id=>{$(id).onclick=()=>open('export');});
+ ['museumGesture','menuGesture'].forEach(id=>{$(id).onclick=()=>{stopViewing();close();closeMenu();$(id==='menuGesture'?'museumMore':id).focus({preventScroll:true});core.openGesture?.();};});
  $('museumClose').onclick=close;listen(dialog,'cancel',e=>{e.preventDefault();close();});
  listen(viewButton,'click',startViewing);
  listen(returnButton,'click',stopViewing);
@@ -165,7 +167,7 @@ export function createUI(core) {
  listen(document,'pointerdown',e=>{if(!menu.contains(e.target)&&!tools.contains(e.target))closeMenu();});
  listen(document,'keydown',e=>{if(e.key==='Escape'){stopViewing();if(!menu.hidden){closeMenu();$('museumMore').focus();}}});
  listen(matchMedia('(max-width:900px)'),'change',closeMenu);
- const api={t,translate,get language(){return language;},get panel(){return panel;},get hotspotsOn(){return hotspotsOn&&!viewing;},buttons,
+ const api={t,translate,get language(){return language;},get panel(){return panel;},get hotspotsOn(){return hotspotsOn&&!viewing&&!core.gestureActive?.();},buttons,
   setExhibit(index){stopViewing();close();exportToken++;captured=unwrapCanvas=null;currentIndex=index;exhibit=exhibits[index];hotspots=exhibit.hotspots;selected=0;buttons.forEach(b=>b.hidden=true);translate();},
   galleryState(index,target,state){currentIndex=index;pendingIndex=target;switchState=state;updateGallery();},
   loading(loaded,total){loadingProgress=total>0?Math.min(100,Math.max(0,Math.round(loaded/total*100))):null;updateLoading();},

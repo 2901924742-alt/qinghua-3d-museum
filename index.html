@@ -241,14 +241,18 @@ document.addEventListener('visibilitychange', () => {
     if(document.hidden){clearTimeout(drawingTimer);if(drawingAt)drawingRemaining=Math.max(1,drawingRemaining-(performance.now()-drawingAt));drawingAt=0;loadingScreen.classList.add('paused');}
     else{loadingScreen.classList.remove('paused');scheduleDrawing();}
 });
+const engineTimer=setTimeout(()=>window.showMuseumLoadError('渲染组件长时间未能下载，请检查网络，或在 Safari 中打开后重试。','engineTimeout'),45000);
 window.museumLoading={desktopIntro,painted:loadingPainted,wait:()=>drawingFinished,
+    engineReady(){clearTimeout(engineTimer);},
+    status(key,message){this.statusKey=key;document.getElementById('loadingStatus').textContent=message;this.translateStatus?.();},
     fail(){clearTimeout(drawingTimer);drawingRemaining=0;drawingDone();loadingScreen.classList.add('failed');},
     async finish(){await drawingFinished;if(loadingScreen.classList.contains('failed'))return false;loadingScreen.classList.add('leaving');await new Promise(resolve=>setTimeout(resolve,180));if(loadingScreen.classList.contains('failed'))return false;loadingScreen.style.display='none';return true;}
 };
 // 独立于模块运行，依赖加载失败时也能给出提示并重新加载。
 window.showMuseumLoadError = function(message, key) {
     const loading = document.getElementById('loading');
-    if (loading.style.display === 'none') return;
+    if (loading.style.display === 'none' || window.museumLoadErrorKey) return;
+    clearTimeout(engineTimer);
     document.getElementById('loadingTitle').textContent = '展馆加载失败';
     document.getElementById('loadingStatus').textContent = message;
     document.getElementById('retryBtn').hidden = false;
@@ -259,13 +263,16 @@ window.showMuseumLoadError = function(message, key) {
 };
 document.getElementById('retryBtn').addEventListener('click', () => window.location.reload());
 window.addEventListener('error', (event) => {
-    if(event.filename?.includes('/enhancements/')){window.disableMuseumEnhancements?.(event.error);return;}
+    if(event.filename?.includes('/enhancements/') && !/\/(interior|interior-data)\.js(?:[?#]|$)/.test(event.filename)){window.disableMuseumEnhancements?.(event.error);return;}
     if (event.target instanceof HTMLScriptElement && event.target.type === 'module') {
         window.showMuseumLoadError('渲染组件未能加载，请检查网络后重试。', 'engineError');
     } else if (event.message && document.getElementById('loading').style.display !== 'none') {
         window.showMuseumLoadError('展馆暂时无法启动，请检查网络和浏览器的 WebGL 支持后重试。', 'startupError');
     }
 }, true);
+if(HTMLScriptElement.supports && !HTMLScriptElement.supports('importmap')){
+    window.showMuseumLoadError('当前浏览器不支持展馆所需的模块映射，请更新系统/浏览器，或使用新版 Safari 打开。','browserError');
+}
 </script>
 
 <script type="importmap">
@@ -287,6 +294,7 @@ window.addEventListener('error', (event) => {
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { addInterior } from './enhancements/interior.js';
 
 /* ================= 场景 ================= */
 let museumExperience = null;
@@ -299,7 +307,9 @@ function disableExperience(error){
 function safeExperience(run){if(!museumExperience)return;try{return run(museumExperience);}catch(error){disableExperience(error);}}
 window.runMuseumEnhancement=safeExperience;
 window.disableMuseumEnhancements=disableExperience;
+window.museumLoading.engineReady();
 await window.museumLoading.painted;
+if(window.museumLoadErrorKey)throw new Error('Museum startup already stopped');
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x050505);
 // 主体与展台使用同一远景雾效，天空和黑洞独立于雾化层。
@@ -941,7 +951,8 @@ function updateBlackHoleView() {
 
 /* ================= 模型 ================= */
 const loader = new GLTFLoader();
-function prepareExhibit(model, original = true) {
+function prepareExhibit(model, original = true, key = 'original') {
+    addInterior(THREE, model, key);
     // 保留原始颜色、贴图和 IOR；修正瓷器的金属度及被关闭的釉面反射。
     model.traverse((object) => {
         if (!object.isMesh) return;
@@ -950,7 +961,7 @@ function prepareExhibit(model, original = true) {
         materials.forEach((material) => {
             if (!material.isMeshStandardMaterial) return;
             material.metalness = 0;
-            if (original) material.roughness = 0.38;
+            if (original && !object.userData.museumDisplayInterior) material.roughness = 0.38;
             if ('specularIntensity' in material) material.specularIntensity = 1;
             // 与展台使用相同的远景雾效，正常观看距离不会雾化。
             material.fog = true;
@@ -1000,10 +1011,21 @@ async function loadExhibit(url, signal) {
     const gltf = await loader.parseAsync(bytes, '');
     try {
         if (signal.aborted) throw signal.reason;
-        return prepareExhibit(gltf.scene, url === './qinghuaci.glb');
+        const key = {'./qinghuaci.glb':'original','./models/covered-vase-192.glb':'covered-192',
+            './models/beaker-vase-193.glb':'beaker-193','./models/covered-vase-191.glb':'vase-191'}[url];
+        return prepareExhibit(gltf.scene, url === './qinghuaci.glb', key);
     } catch(error) {disposeExhibit(gltf.scene);throw error;}
 }
+let modelLoadStopped=false, modelLoadTimer;
+function armModelTimeout(){
+    clearTimeout(modelLoadTimer);
+    modelLoadTimer=setTimeout(()=>{modelLoadStopped=true;window.showMuseumLoadError('模型下载或解析长时间没有进展，请重新加载，或在 Safari 中打开后重试。','modelTimeout');},60000);
+}
+armModelTimeout();
 loader.load("./qinghuaci.glb",(gltf)=>{
+    clearTimeout(modelLoadTimer);
+    if(modelLoadStopped || window.museumLoadErrorKey){disposeExhibit(gltf.scene);return;}
+    modelLoadStopped=true;
     let model;
     try {model = prepareExhibit(gltf.scene);} catch(error) {
         disposeExhibit(gltf.scene);
@@ -1014,13 +1036,19 @@ loader.load("./qinghuaci.glb",(gltf)=>{
     safeExperience(experience=>experience.ready(model));
     revealMuseum().catch(error=>{console.error('Museum preparation failed:',error);window.showMuseumLoadError('展馆暂时无法启动，请检查网络和浏览器的 WebGL 支持后重试。','startupError');});
 }, (event) => {
+    if(modelLoadStopped || window.museumLoadErrorKey)return;
+    armModelTimeout();
     const status = document.getElementById('loadingStatus');
-    if (!document.getElementById('retryBtn').hidden) return;
     status.textContent = event.lengthComputable && event.total > 0
         ? `模型加载中 ${Math.min(100,Math.max(0,Math.round(event.loaded / event.total * 100)))}%`
         : '正在加载瓷器模型…';
+    window.museumLoading.statusKey=null;
     safeExperience(experience=>experience.loading(event.loaded,event.lengthComputable?event.total:0));
+    if(event.lengthComputable && event.total>0 && event.loaded>=event.total)window.museumLoading.status('modelPreparing','正在接收或解析模型数据…');
 }, (error) => {
+    clearTimeout(modelLoadTimer);
+    if(modelLoadStopped || window.museumLoadErrorKey)return;
+    modelLoadStopped=true;
     console.error('瓷器模型加载失败：', error);
     window.showMuseumLoadError('瓷器模型未能加载，请检查网络及 qinghuaci.glb 文件后重试。', 'modelError');
 });
@@ -1206,8 +1234,10 @@ async function revealMuseum(){
     // Keep expensive GPU preparation out of the SVG's continuous growth phase.
     await window.museumLoading.wait();
     if(window.museumLoadErrorKey)return;
-    // Warm every pass, including desktop mist composition, before revealing the canvas.
-    await renderer.compileAsync(scene,camera);
+    window.museumLoading.status('scenePreparing','正在准备展馆画面…');
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    // r160's asynchronous readiness polling can stall on some mobile WebGL drivers.
+    renderer.compile(scene,camera);
     safeExperience(experience=>experience.prepareIntro());
     updateMistInstances();updateBlackHoleView();renderMuseum();
     if(await window.museumLoading.finish()){

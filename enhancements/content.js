@@ -25,3 +25,6 @@ export const steps = [
 ];
 Object.assign(copy.zh,{previous:'上一件青花瓷',next:'下一件青花瓷',collection:'青花瓷展品切换',switchLoading:name=>`正在准备 ${name}…`,switchMoving:'星河间，移步下一件青花',switchError:'这件展品暂时无法加载，已保留当前展品。可再次切换重试。'});
 Object.assign(copy.en,{previous:'Previous porcelain',next:'Next porcelain',collection:'Blue-and-white exhibit collection',switchLoading:name=>`Preparing ${name}…`,switchMoving:'Travelling to the next porcelain',switchError:'This exhibit could not load. The current exhibit is retained; try switching again.'});
+
+Object.assign(copy.zh,{engineTimeout:'渲染组件长时间未能下载，请检查网络，或在 Safari 中打开后重试。',browserError:'当前浏览器不支持展馆所需的模块映射，请更新系统/浏览器，或使用新版 Safari 打开。',modelTimeout:'模型下载或解析长时间没有进展，请重新加载，或在 Safari 中打开后重试。',modelPreparing:'正在接收或解析模型数据…',scenePreparing:'正在准备展馆画面…'});
+Object.assign(copy.en,{engineTimeout:'Rendering components have not arrived. Check the connection, or open this page in an updated browser and retry.',browserError:'This browser does not support the required module maps. Update the system/browser, or open in a current Safari.',modelTimeout:'Model download or decoding has stopped progressing. Reload, or open in an updated browser and retry.',modelPreparing:'Receiving or decoding model data…',scenePreparing:'Preparing the museum view…'});

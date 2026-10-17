@@ -46,3 +46,12 @@ body.museum-panel-open .tip,body.museum-panel-open #restoreBtn{visibility:hidden
 .museum-viewing .title,.museum-viewing .sub,.museum-viewing .info,.museum-viewing .tip,.museum-viewing #restoreBtn,.museum-viewing #resetViewBtn,.museum-viewing #museumView,.museum-viewing .museum-tools,.museum-viewing .museum-menu,.museum-viewing .museum-gallery,.museum-viewing .hotspots{visibility:hidden!important}
 .museum-viewing .info,.museum-viewing .tip{transition:none}
 #museumReturn{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:max(16px,env(safe-area-inset-bottom));z-index:26}
+.museum-gesture .title,.museum-gesture .sub,.museum-gesture .info,.museum-gesture .tip,.museum-gesture #restoreBtn,.museum-gesture #resetViewBtn,.museum-gesture #museumView,.museum-gesture .museum-tools,.museum-gesture .museum-menu,.museum-gesture .museum-gallery,.museum-gesture .hotspots{visibility:hidden!important}
+#museumGestureDock{position:fixed;left:50%;bottom:max(16px,env(safe-area-inset-bottom));transform:translateX(-50%);width:min(580px,calc(100% - 32px));box-sizing:border-box;padding:16px 20px;border:1px solid #5276b4;border-radius:18px;background:#0c1527ed;color:var(--paper);font-size:12px;line-height:1.6;z-index:30}
+#museumGestureDock header{display:flex;justify-content:space-between;align-items:center;gap:12px}#gestureTitle{font-size:18px;margin:0;color:var(--ice)}
+#museumGestureDock p{margin:8px 0}#museumGestureDock .note{color:#adbad0;font-size:11px;margin-bottom:0}
+#museumGestureDock button{min-height:44px;padding:8px 14px;font:inherit;color:var(--paper);background:#11244c;border:1px solid #88b1fa66;border-radius:10px;cursor:pointer}
+#museumGestureDock button:disabled{opacity:.65;cursor:wait}.gesture-camera{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}#gestureStatus{flex:1;min-width:150px}
+#museumGestureDock .gesture-video{position:absolute;right:0;bottom:calc(100% + 8px);width:96px;height:72px;object-fit:cover;transform:scaleX(-1);border:1px solid #5276b4;border-radius:10px;background:#071125}
+@media(min-width:901px){#museumGesture{position:fixed;top:96px;right:260px}}
+@media(max-width:560px){#museumGestureDock{padding:12px 14px;font-size:11px}#gestureTitle{font-size:16px}#museumGestureDock header button{font-size:12px}#museumGestureDock{max-height:45dvh;overflow-y:auto}#museumGestureDock .gesture-video{position:static;display:block;margin:8px 0 0 auto}#gestureHint{line-height:1.5}}
