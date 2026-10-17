@@ -1,6 +1,7 @@
 import {createUI} from './ui.js';
 import {exhibits} from './exhibits.js';
 import {createGallery} from './gallery.js';
+import {createGestureExperience} from './gesture-experience.js';
 
 // Enhancements share the existing animation loop and never change the porcelain renderer settings.
 export function createExperience({THREE,scene,renderer,camera,controls,renderMuseum,isDesktop,hideInfo,restoreInfo,loadExhibit,disposeExhibit,onExhibitChange}) {
@@ -11,8 +12,11 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  let model=null,anchors=null,intro=null,introCancelled=false,time=0,meteorAt=10,meteorStart=-1,pausedEffects=false,gallery=null,exhibitIndex=0;
  const reduced=matchMedia('(prefers-reduced-motion: reduce)');
  const dummy=new THREE.Object3D(),tmp=new THREE.Vector3(),tmpNormal=new THREE.Vector3();
- const ui=createUI({controls,hideInfo,restoreInfo,cancelIntro,capture,unwrap,switchExhibit:direction=>gallery?.step(direction)});
+ let gesture;
+ const ui=createUI({controls,hideInfo,restoreInfo,cancelIntro,capture,unwrap,switchExhibit:direction=>gallery?.step(direction),openGesture:()=>gesture.open(),gestureActive:()=>gesture?.active});
+ gesture=createGestureExperience({THREE,scene,camera,renderer,controls,isDesktop,getLanguage:()=>ui.language,cancelIntro,pauseEffects:value=>{pausedEffects=value;},getEffectsPaused:()=>pausedEffects});
  cleanup.push(()=>ui.dispose(),()=>{if(intro){camera.position.copy(initialPosition);controls.target.copy(initialTarget);controls.update(0);}cancelIntro();});
+ cleanup.push(()=>gesture.dispose());
  // Let OrbitControls receive every pointer. Activate a hotspot only after a stationary single-pointer tap.
  const tapPointers=new Map();let multiplePointers=false,pendingHotspot=null;
  // OrbitControls reconnects a remaining finger with synthetic events. That is not a new tap.
@@ -102,6 +106,7 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  function update(delta){
   time+=delta;
   gallery.update();
+  gesture.update(delta);
   if(intro?.running){intro.elapsed=(performance.now()-intro.startAt)/1000;const p=Math.min(1,intro.elapsed/2.6),ease=p*p*(3-2*p);camera.position.lerpVectors(intro.start,initialPosition,ease);camera.position.x-=3*Math.sin(Math.PI*ease);camera.position.y+=1.5*Math.sin(Math.PI*ease);controls.target.copy(initialTarget);}
   if(ui.panel)controls.autoRotate=false;
   if(time>5&&!reduced.matches&&!pausedEffects){sampleFrames++;if(delta>.04)heavySamples++;

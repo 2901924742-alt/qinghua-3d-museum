@@ -10,6 +10,16 @@ export function createGallery({THREE,renderer,scene,camera,controls,loadExhibit,
   const id=requestAnimationFrame(()=>{signal.removeEventListener('abort',abort);resolve();});
   signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();
  });
+ // Parsing can ignore abort; release the queue now and dispose any result that arrives later.
+ const loadCandidate=(url,signal)=>new Promise((resolve,reject)=>{
+  let settled=false;
+  const abort=()=>{if(settled)return;settled=true;signal.removeEventListener('abort',abort);reject(signal.reason);};
+  signal.addEventListener('abort',abort,{once:true});if(signal.aborted){abort();return;}
+  Promise.resolve().then(()=>{signal.throwIfAborted();return loadExhibit(url,signal);}).then(model=>{
+   if(settled){try{disposeExhibit(model);}catch(error){console.warn('Cancelled exhibit cleanup:',error);}return;}
+   settled=true;signal.removeEventListener('abort',abort);resolve(model);
+  },error=>{if(settled)return;settled=true;signal.removeEventListener('abort',abort);reject(error);});
+ });
  function state(kind='idle'){ui.galleryState(current,requested,kind);}
  function finish(){
   if(!motion)return;
@@ -28,15 +38,15 @@ export function createGallery({THREE,renderer,scene,camera,controls,loadExhibit,
   const previous=preparing;let release;preparing=new Promise(resolve=>{release=resolve;});
   let candidate=null,timer=null;
   try{
-   // Native shader compilation cannot be aborted; wait for its candidate to be released.
+   // Release a previous candidate before preparing the newest request.
    await previous;if(token!==serial)return;controller.signal.throwIfAborted();
    timer=setTimeout(()=>controller.abort(new DOMException('Model preparation timed out','TimeoutError')),30000);
-   candidate=await loadExhibit(exhibits[target].url,controller.signal);
+   candidate=await loadCandidate(exhibits[target].url,controller.signal);
    controller.signal.throwIfAborted();
    if(token!==serial)return;
    // Compile against the existing lights, then spread texture uploads across frames.
    const staging=new THREE.Scene();staging.add(candidate);
-   await renderer.compileAsync(staging,camera,scene);
+   renderer.compile(staging,camera,scene);
    controller.signal.throwIfAborted();
    if(token!==serial)return;
    const textures=new Set();candidate.traverse(mesh=>{if(!mesh.isMesh)return;for(const material of [].concat(mesh.material))for(const value of Object.values(material))if(value?.isTexture)textures.add(value);});
