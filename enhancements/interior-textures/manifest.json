@@ -1,0 +1,179 @@
+{
+  "schema": 1,
+  "notice": "Display-only interior decoration reconstructed by transplanting exterior motifs. These are not measured or authenticated original inner-wall paintings.",
+  "noticeZH": "内壁纹饰为原外壁纹饰的展示性移植与重建，不代表器物真实内纹或实测内腔。",
+  "size": [
+    512,
+    512
+  ],
+  "channels": 3,
+  "colorSpace": "sRGB",
+  "flipY": false,
+  "uv": {
+    "u": "seamProgress; regular ring k/64; angles interpolated from profile.angles; no horizontal mirror",
+    "v": "normalized depth 0 at original scan cut, 1 at bowl floor; whole atlas is continuous"
+  },
+  "blend": {
+    "topDecoration": [
+      0,
+      0.15
+    ],
+    "cutVariation": [
+      0,
+      0.035
+    ],
+    "bottom": [
+      0.86,
+      1
+    ],
+    "deepContrast": 0.62
+  },
+  "palette": {
+    "glazeSRGB": [
+      246,
+      249,
+      253
+    ],
+    "cobaltSRGB": [
+      32,
+      65,
+      128
+    ],
+    "method": "Exterior source blue-chroma signal only; neutral baked shadows and non-blue labels become natural glaze. No atlas depth shading; runtime provides it."
+  },
+  "profileFileSHA256": "1d996aa17c884c4cd27571831912fc057bebc35832b1c4c410cd080c751440f8",
+  "models": [
+    {
+      "key": "original",
+      "file": "original.png",
+      "bytes": 214357,
+      "sha256": "68c602fbb20ea709a6a0edb9827ba0a8085034a351759e251ef217e61d3cd681",
+      "source": "qinghuaci.glb",
+      "sourceSHA256": "65ae2037c70cf0dfe63fa0b3c5fd779a0c5df9cb8507bb390ec6c744d240bfdd",
+      "sourceBaseColorSHA256": "419612972d8309dcf6ad678af6a8688c3a5bee0e2aa36023660fcbfcd4f7e8ec",
+      "profileUsedSHA256": "322c74d6fc911dfb2c6cbf63587ad895fe0867b08c3bbbc92c78a9d7508801ff",
+      "sourceTextureSize": [
+        4096,
+        4096
+      ],
+      "cutSamples": 512,
+      "topRowRGBError": 0,
+      "periodicEdgeRGBError": 0,
+      "floorUniformRGBError": 0,
+      "maxBlueOverRed": 44,
+      "missingOuterRaySamples": 0,
+      "medianCutLinear": [
+        1,
+        1,
+        1
+      ],
+      "sourceWhiteLinear": [
+        0.9918512949964124,
+        0.9958083761506814,
+        0.9414712512122632
+      ],
+      "mirrored": false,
+      "labelsPolicy": "Only the farthest lateral body surface is sampled above the inner floor. Horizontal underside/foot marks and separate cover/labels are not selected. Only blue-chroma decoration is transplanted; neutral shadows and red/brown/black label colors become glaze. Existing cut colors remain only in the narrow joining band.",
+      "reconstruction": true
+    },
+    {
+      "key": "covered-192",
+      "file": "covered-192.png",
+      "bytes": 273351,
+      "sha256": "460ec2d4b2c34d989b1f72a9249b6e48127fc50b7f91819b0b7a0d21e233be42",
+      "source": "models/covered-vase-192.glb",
+      "sourceSHA256": "5fbe058b1fae4483ef278be1cc4ab01393c5401d8d410fb28ba6cff6eff52752",
+      "sourceBaseColorSHA256": "bac47db6228ebec6961e7d0561dbebd23a08671433c3d3ec087018b0b2c4d444",
+      "profileUsedSHA256": "4c2c98fea563c338396ca64134a1d65020802388ea91b57203f7a320ac768ce5",
+      "sourceTextureSize": [
+        2048,
+        2048
+      ],
+      "cutSamples": 512,
+      "topRowRGBError": 0,
+      "periodicEdgeRGBError": 0,
+      "floorUniformRGBError": 0,
+      "maxBlueOverRed": 42,
+      "missingOuterRaySamples": 2,
+      "medianCutLinear": [
+        0.882573544105687,
+        0.8921624886404091,
+        0.9046611743911496
+      ],
+      "sourceWhiteLinear": [
+        0.9311919465663295,
+        0.9526220762225059,
+        0.9625283062728694
+      ],
+      "mirrored": false,
+      "labelsPolicy": "Only the farthest lateral body surface is sampled above the inner floor. Horizontal underside/foot marks and separate cover/labels are not selected. Only blue-chroma decoration is transplanted; neutral shadows and red/brown/black label colors become glaze. Existing cut colors remain only in the narrow joining band.",
+      "reconstruction": true
+    },
+    {
+      "key": "beaker-193",
+      "file": "beaker-193.png",
+      "bytes": 246221,
+      "sha256": "e998209a0a6c909a2bebb2c4d018ae40e468b8407060a7210cf3575199a48821",
+      "source": "models/beaker-vase-193.glb",
+      "sourceSHA256": "37ff9003e862fca31c7387f5c5397f54e418dafd73e53c0a7875010e76293a11",
+      "sourceBaseColorSHA256": "7cc6811e17b4b61106d1c9b8c238b3874b1aa20e385de08e5bb2c05c2395c862",
+      "profileUsedSHA256": "59d7a428670c126f3fdb7b86b6adcd075cc3069e90ca07e303d1a9d620da78f6",
+      "sourceTextureSize": [
+        2048,
+        2048
+      ],
+      "cutSamples": 512,
+      "topRowRGBError": 0,
+      "periodicEdgeRGBError": 0,
+      "floorUniformRGBError": 0,
+      "maxBlueOverRed": 41,
+      "missingOuterRaySamples": 0,
+      "medianCutLinear": [
+        0.33716361504833037,
+        0.3613067797835095,
+        0.3795068229370977
+      ],
+      "sourceWhiteLinear": [
+        0.5028864580325687,
+        0.5332764040105052,
+        0.5583403896342679
+      ],
+      "mirrored": false,
+      "labelsPolicy": "Only the farthest lateral body surface is sampled above the inner floor. Horizontal underside/foot marks and separate cover/labels are not selected. Only blue-chroma decoration is transplanted; neutral shadows and red/brown/black label colors become glaze. Existing cut colors remain only in the narrow joining band.",
+      "reconstruction": true
+    },
+    {
+      "key": "vase-191",
+      "file": "vase-191.png",
+      "bytes": 291451,
+      "sha256": "b782b5c02a950aced2ea5b0d651286d503e37a6ce212b37a6c958198bc4db8cb",
+      "source": "models/covered-vase-191.glb",
+      "sourceSHA256": "7e305a0d67aaa4aad513517b8aabe325e3cbf57f2b15de76232568161c7b71a2",
+      "sourceBaseColorSHA256": "e30ff0e0e4f9759210889d8a5d23eae64c47ea2fdc3319255bccee92768881b9",
+      "profileUsedSHA256": "e6e9f182249931f2fd7f7fafc51b8935d9cb9c4257950dfa22880087b9048464",
+      "sourceTextureSize": [
+        2048,
+        2048
+      ],
+      "cutSamples": 512,
+      "topRowRGBError": 0,
+      "periodicEdgeRGBError": 0,
+      "floorUniformRGBError": 0,
+      "maxBlueOverRed": 44,
+      "missingOuterRaySamples": 0,
+      "medianCutLinear": [
+        0.1316207775427506,
+        0.15268947088949283,
+        0.12435380501364399
+      ],
+      "sourceWhiteLinear": [
+        0.6232211441007636,
+        0.6866853124353135,
+        0.6309967486729327
+      ],
+      "mirrored": false,
+      "labelsPolicy": "Only the farthest lateral body surface is sampled above the inner floor. Horizontal underside/foot marks and separate cover/labels are not selected. Only blue-chroma decoration is transplanted; neutral shadows and red/brown/black label colors become glaze. Existing cut colors remain only in the narrow joining band.",
+      "reconstruction": true
+    }
+  ]
+}
