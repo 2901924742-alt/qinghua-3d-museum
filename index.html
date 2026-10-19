@@ -985,7 +985,8 @@ function prepareExhibit(model, original = true, key = 'original') {
     model.position.x -= newCenter.x;
     model.position.z -= newCenter.z;
     model.position.y -= minY;
-    model.position.y += (-1.05 + 0.28);
+    const podiumTop = new THREE.Box3().setFromObject(podium, true).max.y;
+    model.position.y += podiumTop + .001;
     return model;
 }
 function disposeExhibit(model) {
@@ -1013,6 +1014,8 @@ async function loadExhibit(url, signal) {
         if (signal.aborted) throw signal.reason;
         const key = {'./qinghuaci.glb':'original','./models/covered-vase-192.glb':'covered-192',
             './models/beaker-vase-193.glb':'beaker-193','./models/covered-vase-191.glb':'vase-191'}[url];
+        await addInterior(THREE, gltf.scene, key).ready;
+        signal.throwIfAborted();
         return prepareExhibit(gltf.scene, url === './qinghuaci.glb', key);
     } catch(error) {disposeExhibit(gltf.scene);throw error;}
 }
@@ -1022,12 +1025,16 @@ function armModelTimeout(){
     modelLoadTimer=setTimeout(()=>{modelLoadStopped=true;window.showMuseumLoadError('模型下载或解析长时间没有进展，请重新加载，或在 Safari 中打开后重试。','modelTimeout');},60000);
 }
 armModelTimeout();
-loader.load("./qinghuaci.glb",(gltf)=>{
+loader.load("./qinghuaci.glb",async (gltf)=>{
     clearTimeout(modelLoadTimer);
     if(modelLoadStopped || window.museumLoadErrorKey){disposeExhibit(gltf.scene);return;}
     modelLoadStopped=true;
     let model;
-    try {model = prepareExhibit(gltf.scene);} catch(error) {
+    try {
+        await addInterior(THREE, gltf.scene, 'original').ready;
+        if(window.museumLoadErrorKey){disposeExhibit(gltf.scene);return;}
+        model = prepareExhibit(gltf.scene);
+    } catch(error) {
         disposeExhibit(gltf.scene);
         window.showMuseumLoadError('模型尺寸无效，请检查模型文件后重试。', 'modelSizeError');return;
     }

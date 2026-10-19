@@ -36,6 +36,7 @@ function environment(withModel = false) {
   addEventListener(){}, location:{reload(){}},
   loader:{load(url,onLoad,onProgress,onError){callbacks={onLoad,onProgress,onError};}},
   prepareExhibit(model){metrics.prepared++; return model;}, disposeExhibit(model){metrics.disposed.push(model);},
+  THREE:{}, addInterior(){return {ready:Promise.resolve()};},
   scene:{add(){metrics.added++;}}, exhibitModel:null, safeExperience(){},
   revealMuseum(){metrics.revealed++; return Promise.resolve();}
  };
@@ -57,6 +58,7 @@ function environment(withModel = false) {
  return {context, metrics, advance, element, get callbacks(){return callbacks;}};
 }
 
+(async()=>{
 // Missing engine: an actionable error appears at 45 seconds, and the first cause is retained.
 {
  const e=environment(); e.advance(44999); assert.equal(e.context.museumLoadErrorKey,undefined);
@@ -79,7 +81,7 @@ for (const reportedComplete of [false,true]) {
  e.advance(1); assert.equal(e.context.museumLoadErrorKey,'modelTimeout');
  assert.equal(e.element('retryBtn').hidden,false);
  const message=e.element('loadingStatus').textContent, lateModel={name:'late model'};
- e.callbacks.onLoad({scene:lateModel});
+ await e.callbacks.onLoad({scene:lateModel});
  assert.deepEqual(e.metrics.disposed,[lateModel]);
  assert.equal(e.metrics.prepared,0); assert.equal(e.metrics.added,0); assert.equal(e.metrics.revealed,0);
  e.callbacks.onProgress({loaded:1,total:2,lengthComputable:true}); e.callbacks.onError(new Error('Late failure'));
@@ -93,7 +95,7 @@ for (const reportedComplete of [false,true]) {
  e.advance(1); assert.equal(e.context.museumLoadErrorKey,'modelTimeout');
 }
 {
- const e=environment(true); e.callbacks.onLoad({scene:{name:'on-time model'}}); e.advance(60001);
+ const e=environment(true); await e.callbacks.onLoad({scene:{name:'on-time model'}}); e.advance(60001);
  assert.equal(e.context.museumLoadErrorKey,undefined,'Successful model load must cancel its deadline');
  assert.equal(e.metrics.prepared,1); assert.equal(e.metrics.added,1); assert.equal(e.metrics.revealed,1);
 }
@@ -114,7 +116,6 @@ async function checkReveal(compileThrows) {
  else {await result;assert.equal(calls.render,1);assert.equal(calls.start,1);assert.equal(context.resetViewBtn.disabled,false);}
  assert.equal(calls.compile,1);assert.equal(calls.raf,2,'Preparation status needs two animation frames before GPU work');
 }
-(async()=>{
  await checkReveal(false);await checkReveal(true);
  console.log('Startup guards pass: engine/model deadlines, progress reset, late disposal, first-error retention, synchronous reveal (8 cases)');
 })().catch(error=>{console.error(error);process.exitCode=1;});
