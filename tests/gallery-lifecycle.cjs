@@ -14,7 +14,9 @@ function fixture({timeout=30000,holdLoads=0,compileFailures=0,holdFrame=false,wi
  const camera={position:new Vector(0,.8,5)},controls={target:new Vector(0,.1,0),target0:new Vector(0,.1,0),position0:new Vector(0,.8,5),maxDistance:40,enableDamping:true,autoRotate:true,update(){}};
  const scene={add(){},remove(){}};
  const makeModel=url=>{live++;peak=Math.max(peak,live);return {url,traverse:fn=>{if(withTexture)fn({isMesh:true,material:{map:{isTexture:true}}})}}};
- const context={AbortController,DOMException,console,performance:{now:()=>now},
+ // Older Safari exposes aborted/events but neither reason nor throwIfAborted.
+ class LegacyAbortController extends AbortController{constructor(){super();Object.defineProperties(this.signal,{reason:{get:()=>undefined},throwIfAborted:{value:undefined}});}}
+ const context={AbortController:process.env.LEGACY_ABORT==='1'?LegacyAbortController:AbortController,DOMException,console,performance:{now:()=>now},
   document:{body:{classList:{add(){},remove(){}}},getElementById:()=>({classList:{contains:()=>false}})},
   window:{museumLoading:{desktopIntro:desktop}},matchMedia:()=>({matches:reduced}),
   setTimeout:(fn,ms)=>setTimeout(fn,ms===30000?timeout:ms),clearTimeout,

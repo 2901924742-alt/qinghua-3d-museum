@@ -38,7 +38,7 @@ export function createInteriorGeometry(THREE, spec) {
         }
     }
     const floor = positions.length / 3, last = floor - count;
-    positions.push(center[0], levels.at(-1)[0], center[1]);
+    positions.push(center[0], levels[levels.length - 1][0], center[1]);
     for (let k = 0; k < count; k++) {
         indices.push(floor, last + (k + 1) % count, last + k);
     }

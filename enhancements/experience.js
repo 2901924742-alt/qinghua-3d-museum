@@ -14,7 +14,7 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  const dummy=new THREE.Object3D(),tmp=new THREE.Vector3(),tmpNormal=new THREE.Vector3();
  let gesture;
  const ui=createUI({controls,hideInfo,restoreInfo,cancelIntro,capture,unwrap,switchExhibit:direction=>gallery?.step(direction),openGesture:()=>gesture.open(),gestureActive:()=>gesture?.active});
- gesture=createGestureExperience({THREE,scene,camera,renderer,controls,isDesktop,getLanguage:()=>ui.language,cancelIntro,pauseEffects:value=>{pausedEffects=value;},getEffectsPaused:()=>pausedEffects});
+ gesture=createGestureExperience({THREE,scene,camera,renderer,controls,isDesktop,getModel:()=>model,getLanguage:()=>ui.language,cancelIntro,pauseEffects:value=>{pausedEffects=value;},getEffectsPaused:()=>pausedEffects});
  cleanup.push(()=>ui.dispose(),()=>{if(intro){camera.position.copy(initialPosition);controls.target.copy(initialTarget);controls.update(0);}cancelIntro();});
  cleanup.push(()=>gesture.dispose());
  // Let OrbitControls receive every pointer. Activate a hotspot only after a stationary single-pointer tap.

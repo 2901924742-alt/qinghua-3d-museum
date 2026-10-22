@@ -108,7 +108,7 @@ async function checkReveal(compileThrows) {
   museumLoading:{wait:()=>Promise.resolve(),status(){},finish:()=>Promise.resolve(true)},
   requestAnimationFrame(fn){calls.raf++;fn();}, safeExperience(fn){fn({prepareIntro(){},startIntro(){calls.start++;}});},
   updateMistInstances(){},updateBlackHoleView(){},renderMuseum(){calls.render++;},animationClock:{getDelta(){}},
-  previousFrameAt:0,previousRafAt:0,qualityWindowAt:0,resetViewBtn:{disabled:true}
+  queueNextExhibit(){},previousFrameAt:0,previousRafAt:0,qualityWindowAt:0,resetViewBtn:{disabled:true}
  };
  context.window=context;vm.createContext(context);
  const result=vm.runInContext(`${reveal}\nrevealMuseum();`,context,{timeout:1000});

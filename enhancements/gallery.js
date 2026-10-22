@@ -5,17 +5,19 @@ export function createGallery({THREE,renderer,scene,camera,controls,loadExhibit,
  let current=0,requested=0,serial=0,pending=null,motion=null,preparing=Promise.resolve();
  const pullOut=1.05,hold=.3,pushIn=1.65,duration=pullOut+hold+pushIn;
  const point=new THREE.Vector3();
+ const abortReason=signal=>signal.reason||new DOMException('Exhibit preparation cancelled','AbortError');
+ const checkAbort=signal=>{if(signal.aborted)throw abortReason(signal);};
  const frame=signal=>new Promise((resolve,reject)=>{
-  const abort=()=>{cancelAnimationFrame(id);signal.removeEventListener('abort',abort);reject(signal.reason);};
+  const abort=()=>{cancelAnimationFrame(id);signal.removeEventListener('abort',abort);reject(abortReason(signal));};
   const id=requestAnimationFrame(()=>{signal.removeEventListener('abort',abort);resolve();});
   signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();
  });
  // Parsing can ignore abort; release the queue now and dispose any result that arrives later.
  const loadCandidate=(url,signal)=>new Promise((resolve,reject)=>{
   let settled=false;
-  const abort=()=>{if(settled)return;settled=true;signal.removeEventListener('abort',abort);reject(signal.reason);};
+  const abort=()=>{if(settled)return;settled=true;signal.removeEventListener('abort',abort);reject(abortReason(signal));};
   signal.addEventListener('abort',abort,{once:true});if(signal.aborted){abort();return;}
-  Promise.resolve().then(()=>{signal.throwIfAborted();return loadExhibit(url,signal);}).then(model=>{
+  Promise.resolve().then(()=>{checkAbort(signal);return loadExhibit(url,signal);}).then(model=>{
    if(settled){try{disposeExhibit(model);}catch(error){console.warn('Cancelled exhibit cleanup:',error);}return;}
    settled=true;signal.removeEventListener('abort',abort);resolve(model);
   },error=>{if(settled)return;settled=true;signal.removeEventListener('abort',abort);reject(error);});
@@ -39,19 +41,19 @@ export function createGallery({THREE,renderer,scene,camera,controls,loadExhibit,
   let candidate=null,timer=null;
   try{
    // Release a previous candidate before preparing the newest request.
-   await previous;if(token!==serial)return;controller.signal.throwIfAborted();
+   await previous;if(token!==serial)return;checkAbort(controller.signal);
    timer=setTimeout(()=>controller.abort(new DOMException('Model preparation timed out','TimeoutError')),30000);
    candidate=await loadCandidate(exhibits[target].url,controller.signal);
-   controller.signal.throwIfAborted();
+   checkAbort(controller.signal);
    if(token!==serial)return;
    // Compile against the existing lights, then spread texture uploads across frames.
    const staging=new THREE.Scene();staging.add(candidate);
    renderer.compile(staging,camera,scene);
-   controller.signal.throwIfAborted();
+   checkAbort(controller.signal);
    if(token!==serial)return;
    const textures=new Set();candidate.traverse(mesh=>{if(!mesh.isMesh)return;for(const material of [].concat(mesh.material))for(const value of Object.values(material))if(value?.isTexture)textures.add(value);});
-   for(const texture of textures){if(token!==serial)return;controller.signal.throwIfAborted();renderer.initTexture(texture);await frame(controller.signal);}
-   controller.signal.throwIfAborted();
+   for(const texture of textures){if(token!==serial)return;checkAbort(controller.signal);renderer.initTexture(texture);await frame(controller.signal);}
+   checkAbort(controller.signal);
    if(token!==serial)return;
    const start=camera.position.clone(),targetStart=controls.target.clone(),targetEnd=controls.target0.clone(),end=controls.position0.clone();
    const far=end.clone().sub(targetEnd);far.x+=2.4;far.y+=1.2;far.setLength(controls.maxDistance).add(targetEnd);

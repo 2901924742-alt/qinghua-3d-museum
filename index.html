@@ -295,6 +295,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { addInterior } from './enhancements/interior.js';
+import { createExhibitCache } from './enhancements/exhibit-cache.js';
 
 /* ================= 场景 ================= */
 let museumExperience = null;
@@ -1004,20 +1005,43 @@ function disposeExhibit(model) {
     textures.forEach(texture=>{if (texture.image?.close) images.add(texture.image);texture.dispose();});
     images.forEach(image=>image.close());materials.forEach(material=>material.dispose());geometries.forEach(geometry=>geometry.dispose());
 }
+const exhibitKeys = {'./qinghuaci.glb':'original','./models/covered-vase-192.glb':'covered-192',
+    './models/beaker-vase-193.glb':'beaker-193','./models/covered-vase-191.glb':'vase-191'};
+const exhibitURLs = Object.keys(exhibitKeys);
+const exhibitCache = createExhibitCache({urls:exhibitURLs});
+let nextExhibitTimer;
+function queueNextExhibit(){
+    clearTimeout(nextExhibitTimer);
+    nextExhibitTimer=setTimeout(()=>{
+        const connection=navigator.connection;
+        if(document.hidden || navigator.onLine===false || connection?.saveData || /(^|-)2g$|^3g$/.test(connection?.effectiveType||'') ||
+            document.getElementById('loading').style.display!=='none')return;
+        if(document.body.matches('.museum-opening,.museum-switching,.museum-gesture') ||
+            document.getElementById('museumGallery')?.getAttribute('aria-busy')==='true'){queueNextExhibit();return;}
+        const key=document.getElementById('museumGallery')?.dataset.exhibit;
+        const index=exhibitURLs.findIndex(url=>exhibitKeys[url]===key);
+        if(index>=0)exhibitCache.warm(exhibitURLs[(index+1)%exhibitURLs.length]);
+    },3500);
+}
+document.addEventListener('visibilitychange',()=>{
+    if(document.hidden){clearTimeout(nextExhibitTimer);exhibitCache.cancelWarm();}
+    else queueNextExhibit();
+});
+const checkExhibitAbort=signal=>{if(signal.aborted)throw signal.reason||new DOMException('Exhibit preparation cancelled','AbortError');};
 async function loadExhibit(url, signal) {
-    const response = await fetch(url, {signal});
-    if (!response.ok) throw new Error(`Exhibit HTTP ${response.status}`);
-    const bytes = await response.arrayBuffer();
-    if (signal.aborted) throw signal.reason;
-    const gltf = await loader.parseAsync(bytes, '');
+    clearTimeout(nextExhibitTimer);
     try {
-        if (signal.aborted) throw signal.reason;
-        const key = {'./qinghuaci.glb':'original','./models/covered-vase-192.glb':'covered-192',
-            './models/beaker-vase-193.glb':'beaker-193','./models/covered-vase-191.glb':'vase-191'}[url];
+    const bytes = await exhibitCache.load(url,signal);
+    checkExhibitAbort(signal);
+    const gltf = await loader.parseAsync(bytes, '').catch(error=>{exhibitCache.forget(url);throw error;});
+    try {
+        checkExhibitAbort(signal);
+        const key = exhibitKeys[url];
         await addInterior(THREE, gltf.scene, key).ready;
-        signal.throwIfAborted();
+        checkExhibitAbort(signal);
         return prepareExhibit(gltf.scene, url === './qinghuaci.glb', key);
     } catch(error) {disposeExhibit(gltf.scene);throw error;}
+    } finally {queueNextExhibit();}
 }
 let modelLoadStopped=false, modelLoadTimer;
 function armModelTimeout(){
@@ -1231,7 +1255,7 @@ restoreBtn.addEventListener("click",()=>{
 const experienceLoaded=import('./enhancements/experience.js').then(({createExperience}) => {
     museumExperience = createExperience({THREE, scene, renderer, camera, controls,
         renderMuseum: () => renderMuseum(), isDesktop: isDesktopRenderer, hideInfo, restoreInfo,
-        loadExhibit, disposeExhibit, onExhibitChange:model=>{exhibitModel=model;}});
+        loadExhibit, disposeExhibit, onExhibitChange:model=>{exhibitModel=model;queueNextExhibit();}});
     window.museumEnhancements = museumExperience;
     if (exhibitModel) safeExperience(experience=>experience.ready(exhibitModel));
 }).catch(disableExperience);
@@ -1249,7 +1273,7 @@ async function revealMuseum(){
     updateMistInstances();updateBlackHoleView();renderMuseum();
     if(await window.museumLoading.finish()){
         animationClock.getDelta();previousFrameAt=previousRafAt=qualityWindowAt=0;
-        safeExperience(experience=>experience.startIntro());resetViewBtn.disabled=false;
+        safeExperience(experience=>experience.startIntro());resetViewBtn.disabled=false;queueNextExhibit();
     }
 }
 </script>

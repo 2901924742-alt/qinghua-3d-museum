@@ -1,29 +1,105 @@
-// Uses the museum's renderer and animation loop. Camera resources are created only on explicit startCamera().
-export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,onStatus=()=>{}}){
- const count=720,positions=new Float32Array(count*3),shape=new Float32Array(count*3),colors=new Float32Array(count*3);
- const palette=[0xb8d4ff,0x597dcc,0xf4f8ff,0x315ba9].map(hex=>new THREE.Color(hex));
- for(let i=0;i<count;i++){
-  const curve=i%12,u=(Math.floor(i/12)*.61803398875)%1,angle=(curve%5)*Math.PI*2/5;
-  let x,y,z;
-  if(curve<10){
-   const size=curve<5?1:.58,radial=.06+Math.sin(Math.PI*u)*size,side=Math.sin(Math.PI*2*u)*size*.27;
-   x=radial*Math.cos(angle)-side*Math.sin(angle);y=radial*Math.sin(angle)+side*Math.cos(angle);z=curve<5?0:.08;
-  }else{
-   const side=curve===10?-1:1,radius=(1-u)*.62,a=u*Math.PI*3;
-   x=side*(.82+Math.cos(a)*radius);y=-.8+Math.sin(a)*radius;z=-.04;
+// Area-weighted surface samples retain the original UV colors; added display interiors are excluded.
+export function sampleExhibit(THREE,model,count){
+ if(!model)throw new Error('No exhibit is ready');
+ model.updateWorldMatrix(true,true);
+ const box=new THREE.Box3(),a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3(),cross=new THREE.Vector3(),entries=[];
+ let area=0;
+ model.traverse(mesh=>{
+  if(!mesh.isMesh||mesh.name.startsWith('museum-display-interior-'))return;
+  const geometry=mesh.geometry,position=geometry.attributes.position,index=geometry.index;if(!position)return;
+  const length=index?index.count:position.count,groups=geometry.groups.length?geometry.groups:[{start:0,count:length,materialIndex:0}];
+  for(const group of groups){
+   const start=Math.max(group.start,geometry.drawRange.start),end=Math.min(group.start+group.count,length,geometry.drawRange.start+geometry.drawRange.count);
+   const triangles=Math.floor((end-start)/3);if(triangles<1)continue;
+   const cumulative=new Float64Array(triangles);let total=0;
+   for(let t=0;t<triangles;t++){
+    const k=start+t*3;
+    a.fromBufferAttribute(position,index?index.getX(k):k).applyMatrix4(mesh.matrixWorld);
+    b.fromBufferAttribute(position,index?index.getX(k+1):k+1).applyMatrix4(mesh.matrixWorld);
+    c.fromBufferAttribute(position,index?index.getX(k+2):k+2).applyMatrix4(mesh.matrixWorld);
+    box.expandByPoint(a);box.expandByPoint(b);box.expandByPoint(c);
+    total+=cross.subVectors(b,a).cross(c.sub(a)).length()*.5;cumulative[t]=total;
+   }
+   if(total>0){area+=total;entries.push({mesh,start,cumulative,total,end:area,normalMatrix:new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld),material:Array.isArray(mesh.material)?mesh.material[group.materialIndex]:mesh.material});}
   }
-  shape.set([x,y,z],i*3);palette[i%palette.length].toArray(colors,i*3);
+ });
+ if(!area||box.isEmpty())throw new Error('The exhibit has no surface to sample');
+ const center=box.getCenter(new THREE.Vector3()),scale=2/Math.max(.0001,box.max.y-box.min.y),uv=new THREE.Vector2(),color=new THREE.Color(),sampleColor=new THREE.Color();
+ const positions=new Float32Array(count*3),colors=new Float32Array(count*3),normals=new Float32Array(count*3),textures=new Map();
+ let seed=1927;const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
+ function pixels(texture){
+  if(textures.has(texture))return textures.get(texture);
+  let result=null;try{
+   const image=texture.image,width=image?.width||image?.videoWidth,height=image?.height||image?.videoHeight;
+   if(width&&height){
+    const canvas=document.createElement('canvas'),ratio=Math.min(1,512/Math.max(width,height));canvas.width=Math.max(1,Math.round(width*ratio));canvas.height=Math.max(1,Math.round(height*ratio));
+    const context=canvas.getContext('2d',{willReadFrequently:true});context.drawImage(image,0,0,canvas.width,canvas.height);
+    result={data:context.getImageData(0,0,canvas.width,canvas.height).data,width:canvas.width,height:canvas.height};
+   }
+  }catch(error){console.warn('Hologram texture sampling: using material color',error);}
+  textures.set(texture,result);return result;
  }
- const sprite=document.createElement('canvas');sprite.width=sprite.height=32;
- const context=sprite.getContext('2d'),gradient=context.createRadialGradient(16,16,1,16,16,16);
- gradient.addColorStop(0,'rgba(255,255,255,1)');gradient.addColorStop(.35,'rgba(255,255,255,.95)');gradient.addColorStop(1,'rgba(255,255,255,0)');context.fillStyle=gradient;context.fillRect(0,0,32,32);
- const texture=new THREE.CanvasTexture(sprite),geometry=new THREE.BufferGeometry();
- geometry.setAttribute('position',new THREE.BufferAttribute(positions,3).setUsage(THREE.DynamicDrawUsage));geometry.setAttribute('color',new THREE.BufferAttribute(colors,3));
- const material=new THREE.PointsMaterial({map:texture,size:3,vertexColors:true,transparent:true,opacity:.9,depthWrite:false,depthTest:false,sizeAttenuation:false,toneMapped:false,fog:false});
- const points=new THREE.Points(geometry,material);points.name='museum-gesture-flower';points.frustumCulled=false;points.renderOrder=6;points.visible=false;scene.add(points);
- const center=new THREE.Vector3(),target={x:.74,y:.4,pinch:0},current={...target};
+ for(let i=0;i<count;i++){
+  const value=random()*area,entry=entries.find(item=>value<item.end)||entries[entries.length-1];
+  const local=value-(entry.end-entry.total),cdf=entry.cumulative;let lo=0,hi=cdf.length-1;
+  while(lo<hi){const mid=(lo+hi)>>1;if(cdf[mid]<local)lo=mid+1;else hi=mid;}
+  const geometry=entry.mesh.geometry,index=geometry.index,k=entry.start+lo*3,ids=[0,1,2].map(n=>index?index.getX(k+n):k+n);
+  const r=Math.sqrt(random()),weights=[1-r,r*(1-random()),0];weights[2]=1-weights[0]-weights[1];
+  a.set(0,0,0);uv.set(0,0);
+  for(let n=0;n<3;n++){b.fromBufferAttribute(geometry.attributes.position,ids[n]).applyMatrix4(entry.mesh.matrixWorld);a.addScaledVector(b,weights[n]);if(geometry.attributes.uv){uv.x+=geometry.attributes.uv.getX(ids[n])*weights[n];uv.y+=geometry.attributes.uv.getY(ids[n])*weights[n];}}
+  a.sub(center).multiplyScalar(scale).toArray(positions,i*3);color.copy(entry.material?.color||new THREE.Color(0xffffff));
+  const map=entry.material?.map,tex=map&&geometry.attributes.uv?pixels(map):null;
+  if(tex){if(map.matrixAutoUpdate)map.updateMatrix();map.transformUv(uv);const x=Math.min(tex.width-1,Math.max(0,Math.floor(uv.x*tex.width))),y=Math.min(tex.height-1,Math.max(0,Math.floor(uv.y*tex.height))),p=(y*tex.width+x)*4;
+   sampleColor.setRGB(tex.data[p]/255,tex.data[p+1]/255,tex.data[p+2]/255,map.colorSpace===THREE.SRGBColorSpace?THREE.SRGBColorSpace:THREE.LinearSRGBColorSpace);color.multiply(sampleColor);
+  }
+  const vertex=entry.material?.vertexColors&&geometry.attributes.color;
+  if(vertex){b.set(0,0,0);for(let n=0;n<3;n++)b.addScaledVector(c.fromBufferAttribute(vertex,ids[n]),weights[n]);color.r*=b.x;color.g*=b.y;color.b*=b.z;}
+  color.toArray(colors,i*3);
+  const normal=geometry.attributes.normal;
+  if(normal){a.set(0,0,0);for(let n=0;n<3;n++)a.addScaledVector(b.fromBufferAttribute(normal,ids[n]),weights[n]);a.applyMatrix3(entry.normalMatrix).normalize();}
+  else{a.fromBufferAttribute(geometry.attributes.position,ids[0]);b.fromBufferAttribute(geometry.attributes.position,ids[1]);c.fromBufferAttribute(geometry.attributes.position,ids[2]);a.copy(b.sub(a).cross(c.sub(a))).applyMatrix3(entry.normalMatrix).normalize();}
+  a.toArray(normals,i*3);
+ }
+ return {positions,colors,normals,textureAvailable:textures.size>0&&[...textures.values()].every(Boolean)};
+}
+
+// Shares the museum's renderer and loop; inference starts only after the camera button is pressed.
+export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,getModel,onStatus=()=>{}}){
+ const count=isDesktop()?12000:6000,group=new THREE.Group(),art=new THREE.Group(),geometry=new THREE.BufferGeometry(),cache=new WeakMap();
+ group.name='museum-gesture-hologram';group.visible=false;group.add(art);scene.add(group);
+ const seeds=new Float32Array(count);for(let i=0;i<count;i++)seeds[i]=(i*.61803398875)%1;
+ geometry.setAttribute('seed',new THREE.BufferAttribute(seeds,1));
+ const uniforms={time:{value:0},scan:{value:-1.15},spread:{value:0},charge:{value:0},pointSize:{value:4},reduced:{value:0}};
+ const common={transparent:true,depthWrite:false,depthTest:false,toneMapped:false,fog:false};
+ const material=new THREE.ShaderMaterial({...common,blending:THREE.AdditiveBlending,uniforms,vertexColors:true,
+  vertexShader:`attribute float seed;uniform float time,scan,spread,charge,pointSize,reduced;varying vec3 tint;varying float strength;
+  void main(){float phase=seed*6.2831853;vec3 p=position;float angle=atan(p.z,p.x)+phase*.18;float radial=1.0+.18*sin(p.y*6.0+phase);vec3 unfolded=vec3(sin(angle)*radial,p.y*.72+sin(phase*5.0)*.2,cos(angle)*radial*.56);p=mix(p,unfolded,spread);p*=1.0-charge*.1;p+=vec3(sin(time*.8+phase),cos(time*.6+phase),sin(time*.7+phase))*spread*.025*(1.0-reduced);
+  float reveal=1.0-smoothstep(scan-.08,scan+.05,position.y);float band=exp(-abs(position.y-scan)*22.0);float ink=clamp((color.b-color.r)*3.0+.15,0.0,1.0);tint=mix(vec3(.22,.48,1.0),vec3(.50,.82,1.0),ink);tint=mix(tint,vec3(.82,.94,1.0),band*.7+charge*.14);float front=mix(.12,1.0,smoothstep(-.1,.65,normalize(normalMatrix*normal).z));strength=reveal*(mix(.38,.95,ink)+band*.8+charge*.35)*mix(front,1.0,spread);vec4 mv=modelViewMatrix*vec4(p,1.0);gl_Position=projectionMatrix*mv;gl_PointSize=pointSize*(.72+seed*.45+band*.3);}`,
+  fragmentShader:`varying vec3 tint;varying float strength;void main(){float r=length(gl_PointCoord-.5)*2.0;if(r>1.0)discard;float core=exp(-r*r*10.0),glow=exp(-r*r*4.8)*.25;gl_FragColor=vec4(tint,(core+glow)*strength);}`});
+ const points=new THREE.Points(geometry,material);points.name='museum-gesture-vessel';points.frustumCulled=false;points.renderOrder=8;art.add(points);
+ const backdropGeometry=new THREE.PlaneGeometry(2,2),backdropMaterial=new THREE.MeshBasicMaterial({...common,color:0x020812,opacity:.94});
+ const backdrop=new THREE.Mesh(backdropGeometry,backdropMaterial);backdrop.position.z=-.3;backdrop.renderOrder=7;backdrop.frustumCulled=false;group.add(backdrop);
+ const linePositions=[],lineTags=[];
+ for(let strand=0;strand<4;strand++)for(let i=0;i<128;i++)for(const n of [i,i+1]){linePositions.push(n/128,strand,0);lineTags.push(strand);}
+ const lineGeometry=new THREE.BufferGeometry();lineGeometry.setAttribute('position',new THREE.Float32BufferAttribute(linePositions,3));lineGeometry.setAttribute('kind',new THREE.Float32BufferAttribute(lineTags,1));
+ const lineUniforms={time:uniforms.time,scan:uniforms.scan,charge:uniforms.charge,release:{value:-1},reduced:uniforms.reduced};
+ const lineMaterial=new THREE.ShaderMaterial({...common,blending:THREE.AdditiveBlending,uniforms:lineUniforms,
+  vertexShader:`attribute float kind;uniform float time,scan,charge,release,reduced;varying float alpha;varying vec3 tint;void main(){float angle=position.x*6.2831853;vec3 p;alpha=.0;tint=vec3(.18,.48,1.0);
+  if(kind<.5){float radius=.78;p=vec3(cos(angle)*radius,scan,sin(angle)*radius);alpha=(1.0-step(1.12,scan))*.65;tint=vec3(.6,.9,1.0);}
+  else if(kind<2.5){float drift=time*.24*(1.0-reduced)*(1.0+charge*2.0);float a=angle+drift+kind*3.14;p=vec3(cos(a)*(.88+charge*.08),sin(angle*2.0+kind)*.32,sin(a)*.58);alpha=.16+charge*.24;}
+  else{float age=clamp(release,0.0,1.0),r=.4+age*1.3;p=vec3(cos(angle)*r,sin(angle)*r*.25,0.18);alpha=release>=0.0?(1.0-age)*.7:0.0;tint=vec3(.5,.82,1.0);}gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);}`,
+  fragmentShader:`varying float alpha;varying vec3 tint;void main(){gl_FragColor=vec4(tint,alpha);}`});
+ const lines=new THREE.LineSegments(lineGeometry,lineMaterial);lines.renderOrder=9;lines.frustumCulled=false;art.add(lines);
+ const trailCount=64,trailPositions=new Float32Array(trailCount*3),trailAges=new Float32Array(trailCount);for(let i=0;i<trailCount;i++)trailAges[i]=i/trailCount;
+ const trailGeometry=new THREE.BufferGeometry();trailGeometry.setAttribute('position',new THREE.BufferAttribute(trailPositions,3).setUsage(THREE.DynamicDrawUsage));trailGeometry.setAttribute('age',new THREE.BufferAttribute(trailAges,1));
+ const trailUniforms={pointSize:uniforms.pointSize,visible:{value:0}};
+ const trailMaterial=new THREE.ShaderMaterial({...common,blending:THREE.AdditiveBlending,uniforms:trailUniforms,
+  vertexShader:`attribute float age;uniform float pointSize,visible;varying float opacity;void main(){opacity=(1.0-age)*visible;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);gl_PointSize=pointSize*(1.5-age*.8);}`,
+  fragmentShader:`varying float opacity;void main(){float r=length(gl_PointCoord-.5)*2.0;if(r>1.0)discard;gl_FragColor=vec4(.35,.7,1.0,exp(-r*r*7.0)*opacity);}`});
+ const trail=new THREE.Points(trailGeometry,trailMaterial);trail.frustumCulled=false;trail.renderOrder=10;art.add(trail);
+ const target={x:.5,y:.5,pinch:0},current={...target};
  const reduced=typeof matchMedia==='function'?matchMedia('(prefers-reduced-motion:reduce)'):null;
- let enabled=false,disposed=false,time=0,state='',generation=0,stream=null,video=null,worker=null,pending=null;
+ let enabled=false,disposed=false,time=0,state='',generation=0,stream=null,video=null,worker=null,pending=null,shownModel=null,previousVisible=true,charged=false,releaseAt=-10,textureAvailable=false;
  let loopTimer=0,initTimer=0,frameTimer=0,rejectInit=null,lastVideoTime=-1;
  const status=next=>{if(state!==next){state=next;onStatus({state:next});}return next;};
  function setPointer(x,y,pinch){
@@ -33,17 +109,23 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,on
  }
  function update(delta){
   if(!enabled||disposed)return;
-  const dt=Number.isFinite(delta)?Math.max(0,Math.min(.05,delta)):0,ease=1-Math.exp(-12*dt);time+=dt;
+  const dt=Number.isFinite(delta)?Math.max(0,Math.min(.05,delta)):0,ease=1-Math.exp(-8*dt),oldX=current.x,oldY=current.y;time+=dt;
   current.x+=(target.x-current.x)*ease;current.y+=(target.y-current.y)*ease;current.pinch+=(target.pinch-current.pinch)*ease;
-  const open=1-current.pinch,spread=.2+open*.8,breath=reduced?.matches?1:1+Math.sin(time*.8)*.025;
-  for(let i=0;i<count;i++){const p=i*3;positions[p]=shape[p]*spread*breath;positions[p+1]=shape[p+1]*(.3+open*.7)*breath;positions[p+2]=shape[p+2]+current.pinch*.18*Math.cos(i*.5);}
-  geometry.attributes.position.needsUpdate=true;geometry.setDrawRange(0,isDesktop()?720:360);material.size=isDesktop()?3:2.6;
-  const rect=renderer.domElement.getBoundingClientRect(),distance=4;
-  camera.updateMatrixWorld();center.set(current.x*2-1,1-current.y*2,.5).unproject(camera).sub(camera.position).normalize().multiplyScalar(distance).add(camera.position);
-  points.position.copy(center);points.quaternion.copy(camera.quaternion);
-  points.scale.setScalar(2*Math.tan(camera.fov*Math.PI/360)*distance*.12*Math.min(1,rect.width/Math.max(1,rect.height)));
+  if(current.pinch>.6)charged=true;if(charged&&target.pinch<.15){charged=false;releaseAt=time;}
+  const age=time-releaseAt,release=age<1.2?age/1.2:-1,unfold=age<3.4?Math.sin(Math.min(1,age/3.4)*Math.PI):0;
+  uniforms.time.value=time;uniforms.reduced.value=reduced?.matches?1:0;uniforms.scan.value=reduced?.matches?1.2:Math.min(1.2,-1.15+time*1.05);uniforms.charge.value=current.pinch;uniforms.spread.value=reduced?.matches?unfold*.3:unfold;
+  geometry.setDrawRange(0,isDesktop()?count:Math.min(count,6000));uniforms.pointSize.value=(isDesktop()?4.3:3.7)*Math.min(2,renderer.getPixelRatio());lineUniforms.release.value=reduced?.matches?-1:release;
+  const rect=renderer.domElement.getBoundingClientRect(),viewHeight=2*Math.tan(camera.fov*Math.PI/360)*4,viewWidth=viewHeight*rect.width/Math.max(1,rect.height);
+  const dock=document.getElementById('museumGestureDock'),freeHeight=dock&&!dock.hidden?Math.max(rect.height*.2,dock.getBoundingClientRect().top-rect.top-16):rect.height;
+  const fieldHeight=viewHeight*Math.min(1,freeHeight/Math.max(1,rect.height)),scale=Math.min(viewHeight*.27,viewWidth*.38,fieldHeight*.4);
+  camera.updateMatrixWorld();group.position.set(0,0,-4).applyMatrix4(camera.matrixWorld);group.quaternion.copy(camera.quaternion);backdrop.scale.set(viewWidth*.55,viewHeight*.55,1);
+  art.position.set((current.x-.5)*viewWidth*.14,Math.max(viewHeight*.10+(.5-current.y)*viewHeight*.06,viewHeight*.5-fieldHeight+scale*1.12),0);art.scale.setScalar(scale);
+  art.rotation.set((current.y-.5)*.28,-.24+(current.x-.5)*.65+(reduced?.matches?0:time*.09),0);
+  const speed=Math.min(1,Math.hypot(current.x-oldX,current.y-oldY)*55);trailUniforms.visible.value+=(speed-trailUniforms.visible.value)*(1-Math.exp(-5*dt));
+  trailPositions.copyWithin(3,0,trailPositions.length-3);trailPositions[0]=(current.x-.5)*2.4;trailPositions[1]=(.5-current.y)*2;trailPositions[2]=.5;trailGeometry.attributes.position.needsUpdate=true;trail.visible=!reduced?.matches;
  }
  function stopCamera(next='ready'){
+  target.pinch=0;
   generation++;clearTimeout(loopTimer);clearTimeout(initTimer);clearTimeout(frameTimer);loopTimer=initTimer=frameTimer=0;
   const reject=rejectInit;rejectInit=null;reject?.(new DOMException('Camera stopped','AbortError'));
   if(worker){worker.onmessage=worker.onerror=null;worker.terminate();worker=null;}
@@ -51,11 +133,21 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,on
   if(video){video.pause();video.srcObject=null;video.remove();video=null;}
   pending=null;lastVideoTime=-1;status(next);
  }
- function setEnabled(value){if(disposed)return;enabled=!!value;points.visible=enabled;if(!enabled)stopCamera();else if(!stream)status('ready');}
+ function setEnabled(value){
+  if(disposed)return;
+  if(value&&!enabled){
+   const model=getModel();let sample=cache.get(model);if(!sample){sample=sampleExhibit(THREE,model,count);cache.set(model,sample);}textureAvailable=sample.textureAvailable;
+   if(geometry.attributes.position?.array!==sample.positions){if(geometry.attributes.position)geometry.dispose();geometry.setAttribute('position',new THREE.BufferAttribute(sample.positions,3));geometry.setAttribute('color',new THREE.BufferAttribute(sample.colors,3));geometry.setAttribute('normal',new THREE.BufferAttribute(sample.normals,3));}
+   shownModel=model;previousVisible=model.visible;model.visible=false;time=0;charged=false;releaseAt=-10;target.x=current.x=.5;target.y=current.y=.5;target.pinch=current.pinch=0;
+   trailPositions.fill(0);trailUniforms.visible.value=0;uniforms.scan.value=-1.15;
+  }
+  enabled=!!value;group.visible=enabled;
+  if(!enabled){if(shownModel){shownModel.visible=previousVisible;shownModel=null;}stopCamera();}else{update(0);if(!stream)status(textureAvailable?'ready':'shapeOnly');}
+ }
  function handResult(landmarks,width,height){
-  if(!landmarks||landmarks.length!==21){status('no-hand');return;}
+  if(!landmarks||landmarks.length!==21){target.pinch=0;status('no-hand');return;}
   const aspect=width/Math.max(1,height),distance=(a,b)=>Math.hypot((a.x-b.x)*aspect,a.y-b.y),palm=distance(landmarks[0],landmarks[9]);
-  if(!Number.isFinite(palm)||palm<.06){status('no-hand');return;}
+  if(!Number.isFinite(palm)||palm<.06){target.pinch=0;status('no-hand');return;}
   const ratio=distance(landmarks[4],landmarks[8])/palm,ids=[0,5,9,13,17];
   const x=ids.reduce((sum,i)=>sum+landmarks[i].x,0)/ids.length,y=ids.reduce((sum,i)=>sum+landmarks[i].y,0)/ids.length;
   // Palm normalization makes pinch independent of the distance to the camera; mirror X with the preview.
@@ -105,7 +197,7 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,on
   pending=task;task.finally(()=>{if(pending===task)pending=null;});return task;
  }
  const onVisibility=()=>{if(document.hidden&&(stream||pending))stopCamera('paused');};document.addEventListener('visibilitychange',onVisibility);
- function dispose(){if(disposed)return;setEnabled(false);disposed=true;document.removeEventListener('visibilitychange',onVisibility);scene.remove(points);geometry.dispose();material.dispose();texture.dispose();}
+ function dispose(){if(disposed)return;setEnabled(false);disposed=true;document.removeEventListener('visibilitychange',onVisibility);scene.remove(group);for(const item of [geometry,material,backdropGeometry,backdropMaterial,lineGeometry,lineMaterial,trailGeometry,trailMaterial])item.dispose();}
  status('ready');
- return {setEnabled,update,setPointer,startCamera,stopCamera,dispose,get video(){return video;},get cameraActive(){return !!stream;}};
+ return {setEnabled,update,setPointer,startCamera,stopCamera,dispose,get textureAvailable(){return textureAvailable;},get video(){return video;},get cameraActive(){return !!stream;}};
 }

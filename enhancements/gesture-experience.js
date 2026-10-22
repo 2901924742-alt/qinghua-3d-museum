@@ -1,9 +1,9 @@
 const text={
- zh:{title:'掌中青花',hint:'拖动屏幕移动花纹；按住或双指触碰，让花瓣收拢。也可启用摄像头，用手掌移动、拇指与食指捏合控制。',camera:'启用摄像头手势',stop:'关闭摄像头',exit:'返回展馆',privacy:'手势在本机识别，不上传或录制画面。',ready:'触控 / 鼠标体验已就绪',loading:'正在准备手势识别…',cameraOn:'摄像头已开启，请伸出一只手',tracking:'已识别手掌 · 捏合收拢，张开舒展',noHand:'请把手掌放入画面',denied:'未获得摄像头权限，仍可触控体验',unsupported:'此浏览器暂不支持摄像头手势，仍可触控体验',error:'手势识别暂不可用，仍可触控体验',paused:'摄像头已关闭，可再次手动开启',failed:'体验暂时无法加载，请关闭后重试'},
- en:{title:'Porcelain in your palm',hint:'Drag to move the pattern; hold or touch with two fingers to gather the petals. Or enable the camera: move your palm and pinch your thumb and index finger.',camera:'Enable camera gestures',stop:'Turn camera off',exit:'Return to museum',privacy:'Hand tracking runs on this device. Video is not uploaded or recorded.',ready:'Touch / mouse interaction ready',loading:'Preparing hand tracking…',cameraOn:'Camera on · Show one hand',tracking:'Hand detected · Pinch to gather, open to bloom',noHand:'Place your palm in the camera view',denied:'Camera permission was not granted; touch still works',unsupported:'Camera gestures are unavailable here; touch still works',error:'Hand tracking is unavailable; touch still works',paused:'Camera off · Enable it again to resume',failed:'This experience could not load. Close and try again.'}
+ zh:{title:'聚纹成器 · 青花全息',hint:'移动手掌或拖动屏幕，转动全息器形。捏合或按住蓄能，松开释放纹样光环，青花随后缓缓归位。',camera:'启用摄像头手势',stop:'关闭摄像头',exit:'返回展馆',privacy:'以当前展品器形与纹饰演绎的艺术光效。手势在本机识别，不上传或录制画面。',ready:'按住蓄能 · 松开舒展',shapeOnly:'纹饰暂未读取，器形光效仍可体验',loading:'正在准备手势识别…',cameraOn:'摄像头已开启，请伸出一只手',tracking:'已识别手掌 · 捏合蓄能，张开释放',noHand:'请把手掌放入画面',denied:'未获得摄像头权限，仍可触控体验',unsupported:'此浏览器暂不支持摄像头手势，仍可触控体验',error:'手势识别暂不可用，仍可触控体验',paused:'摄像头已关闭，可再次手动开启',failed:'体验暂时无法加载，请关闭后重试'},
+ en:{title:'Porcelain hologram',hint:'Move your palm or drag to turn the hologram. Pinch or hold to gather energy; release to unfold the patterns into light, then watch the vessel reform.',camera:'Enable camera gestures',stop:'Turn camera off',exit:'Return to museum',privacy:'An artistic light study of the current exhibit’s form and decoration. Tracking stays on this device; video is not uploaded or recorded.',ready:'Hold to gather · Release to unfold',shapeOnly:'Decoration unavailable · The vessel light study still works',loading:'Preparing hand tracking…',cameraOn:'Camera on · Show one hand',tracking:'Hand detected · Pinch to gather, open to release',noHand:'Place your palm in the camera view',denied:'Camera permission was not granted; touch still works',unsupported:'Camera gestures are unavailable here; touch still works',error:'Hand tracking is unavailable; touch still works',paused:'Camera off · Enable it again to resume',failed:'This experience could not load. Close and try again.'}
 };
 
-export function createGestureExperience({THREE,scene,camera,renderer,controls,isDesktop,getLanguage,cancelIntro,pauseEffects,getEffectsPaused}){
+export function createGestureExperience({THREE,scene,camera,renderer,controls,isDesktop,getModel,getLanguage,cancelIntro,pauseEffects,getEffectsPaused}){
  let mode=null,effect=null,pending=null,generation=0,disposed=false,state='ready';
  const lifetime=new AbortController(),pointers=new Map();
  const dock=document.createElement('section');dock.id='museumGestureDock';dock.hidden=true;dock.setAttribute('aria-labelledby','gestureTitle');
@@ -34,8 +34,8 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
   try{
    pending ||= import('./gesture-particles.js').catch(error=>{pending=null;throw error;});
    const {createGestureParticles}=await pending;if(!mode||token!==generation||disposed)return;
-   effect ||= createGestureParticles({THREE,scene,camera,renderer,isDesktop,onStatus:result=>{if(mode)status(result.state);}});
-   effect.setEnabled(true);status('ready');
+   effect ||= createGestureParticles({THREE,scene,camera,renderer,isDesktop,getModel,onStatus:result=>{if(mode)status(result.state);}});
+   effect.setEnabled(true);status(effect.textureAvailable?'ready':'shapeOnly');
   }catch(error){console.warn('Gesture experience:',error);if(mode&&token===generation)status('failed');}
  }
  async function toggleCamera(){
@@ -50,7 +50,7 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
  const listen=(target,type,handler,options={})=>target.addEventListener(type,handler,{...options,signal:lifetime.signal});
  listen($('gestureExit'),'click',close);listen($('gestureCamera'),'click',toggleCamera);
  listen(document,'keydown',event=>{if(!mode)return;if(event.key==='Escape'){event.preventDefault();close();}
-  if(event.key==='Tab'){const buttons=[...dock.querySelectorAll('button:not(:disabled)')];if(event.shiftKey&&document.activeElement===buttons[0]){event.preventDefault();buttons.at(-1).focus();}else if(!event.shiftKey&&document.activeElement===buttons.at(-1)){event.preventDefault();buttons[0].focus();}}
+  if(event.key==='Tab'){const buttons=[...dock.querySelectorAll('button:not(:disabled)')];if(event.shiftKey&&document.activeElement===buttons[0]){event.preventDefault();buttons[buttons.length-1].focus();}else if(!event.shiftKey&&document.activeElement===buttons[buttons.length-1]){event.preventDefault();buttons[0].focus();}}
  });
  const canvas=renderer.domElement;
  function move(event){if(!mode||!effect||effect.cameraActive)return;const rect=canvas.getBoundingClientRect();effect.setPointer((event.clientX-rect.left)/rect.width,(event.clientY-rect.top)/rect.height,pointers.size?1:0);}

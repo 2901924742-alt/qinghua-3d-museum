@@ -162,7 +162,7 @@ export function createUI(core) {
  $('museumClose').onclick=close;listen(dialog,'cancel',e=>{e.preventDefault();close();});
  listen(viewButton,'click',startViewing);
  listen(returnButton,'click',stopViewing);
- listen(dialog,'keydown',e=>{if(e.key!=='Tab')return;const focusable=[...dialog.querySelectorAll('button:not([disabled]),a[href]')].filter(el=>el.getClientRects().length&&!el.hidden);const first=focusable[0],last=focusable.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}});
+ listen(dialog,'keydown',e=>{if(e.key!=='Tab')return;const focusable=[...dialog.querySelectorAll('button:not([disabled]),a[href]')].filter(el=>el.getClientRects().length&&!el.hidden);const first=focusable[0],last=focusable[focusable.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}});
  listen(dialog,'click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close();}});
  listen(document,'pointerdown',e=>{if(!menu.contains(e.target)&&!tools.contains(e.target))closeMenu();});
  listen(document,'keydown',e=>{if(e.key==='Escape'){stopViewing();if(!menu.hidden){closeMenu();$('museumMore').focus();}}});
