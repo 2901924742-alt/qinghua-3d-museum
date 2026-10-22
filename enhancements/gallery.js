@@ -32,7 +32,15 @@ export function createGallery({THREE,renderer,scene,camera,controls,loadExhibit,
   if(!old.committed)disposeExhibit(old.next);
  }
  function cancel(){serial++;pending?.abort();pending=null;finish();requested=current;state();}
- async function step(direction){
+ function present(next,index){
+  const previous=getModel();scene.add(next);
+  try{commit(next,index);}catch(error){
+   scene.remove(next);try{commit(previous,current);}catch(rollbackError){console.warn('Exhibit UI recovery:',rollbackError);}throw error;
+  }
+  current=index;scene.remove(previous);
+  try{disposeExhibit(previous);}catch(error){console.warn('Previous exhibit cleanup:',error);}
+ }
+ async function step(direction,{animate=true}={}){
   const target=(requested+direction+exhibits.length)%exhibits.length;
   cancelIntro();requested=target;
   if(target===current){state();return;}
@@ -55,6 +63,7 @@ export function createGallery({THREE,renderer,scene,camera,controls,loadExhibit,
    for(const texture of textures){if(token!==serial)return;checkAbort(controller.signal);renderer.initTexture(texture);await frame(controller.signal);}
    checkAbort(controller.signal);
    if(token!==serial)return;
+   if(!animate){present(candidate,target);candidate=null;requested=current;state();return;}
    const start=camera.position.clone(),targetStart=controls.target.clone(),targetEnd=controls.target0.clone(),end=controls.position0.clone();
    const far=end.clone().sub(targetEnd);far.x+=2.4;far.y+=1.2;far.setLength(controls.maxDistance).add(targetEnd);
    motion={next:candidate,index:target,at:performance.now(),instant:matchMedia('(prefers-reduced-motion: reduce)').matches&&!window.museumLoading.desktopIntro,committed:false,start,targetStart,targetEnd,end,far,damping:controls.enableDamping,auto:controls.autoRotate,infoHidden:document.getElementById('infoBox').classList.contains('hide')};candidate=null;
@@ -68,13 +77,10 @@ export function createGallery({THREE,renderer,scene,camera,controls,loadExhibit,
   if(elapsed>=pullOut+hold/2&&!m.committed){
    // A delayed frame must still show the distant swap before the approach begins.
    if(!m.instant){elapsed=pullOut+hold/2;m.at=performance.now()-elapsed*1000;camera.position.copy(m.far);controls.target.copy(m.targetEnd);}
-   const previous=getModel();scene.add(m.next);
-   try{commit(m.next,m.index);}catch(error){
-    scene.remove(m.next);try{commit(previous,current);}catch(rollbackError){console.warn('Exhibit UI recovery:',rollbackError);}
+   try{present(m.next,m.index);}catch(error){
     finish();requested=current;state('error');console.warn('Exhibit presentation failed:',error);return;
    }
-   current=m.index;m.committed=true;
-   scene.remove(previous);disposeExhibit(previous);state('moving');
+   m.committed=true;state('moving');
   }
   const outbound=elapsed<pullOut,p=Math.min(1,outbound?elapsed/pullOut:Math.max(0,elapsed-pullOut-hold)/pushIn),ease=p*p*(3-2*p);
   camera.position.lerpVectors(outbound?m.start:m.far,outbound?m.far:m.end,ease);

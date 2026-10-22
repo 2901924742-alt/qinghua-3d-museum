@@ -14,7 +14,7 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  const dummy=new THREE.Object3D(),tmp=new THREE.Vector3(),tmpNormal=new THREE.Vector3();
  let gesture;
  const ui=createUI({controls,hideInfo,restoreInfo,cancelIntro,capture,unwrap,switchExhibit:direction=>gallery?.step(direction),openGesture:()=>gesture.open(),gestureActive:()=>gesture?.active});
- gesture=createGestureExperience({THREE,scene,camera,renderer,controls,isDesktop,getModel:()=>model,getLanguage:()=>ui.language,cancelIntro,pauseEffects:value=>{pausedEffects=value;},getEffectsPaused:()=>pausedEffects});
+ gesture=createGestureExperience({THREE,scene,camera,renderer,controls,isDesktop,getModel:()=>model,getLanguage:()=>ui.language,cancelIntro,pauseEffects:value=>{pausedEffects=value;},getEffectsPaused:()=>pausedEffects,switchExhibit:direction=>gallery?.step(direction,{animate:false}),cancelSwitch:()=>gallery?.cancel()});
  cleanup.push(()=>ui.dispose(),()=>{if(intro){camera.position.copy(initialPosition);controls.target.copy(initialTarget);controls.update(0);}cancelIntro();});
  cleanup.push(()=>gesture.dispose());
  // Let OrbitControls receive every pointer. Activate a hotspot only after a stationary single-pointer tap.
@@ -32,13 +32,14 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  // following compatibility click to the dialog backdrop and immediately close it.
  listen(renderer.domElement,'click',()=>{const button=pendingHotspot;pendingHotspot=null;if(button&&!button.hidden&&ui.hotspotsOn&&!ui.panel)button.click();});
  const initialPosition=controls.position0.clone(),initialTarget=controls.target0.clone();
- gallery=createGallery({THREE,renderer,scene,camera,controls,loadExhibit,disposeExhibit,getModel:()=>model,commit:ready,ui,cancelIntro,hideInfo,restoreInfo});
+ gallery=createGallery({THREE,renderer,scene,camera,controls,loadExhibit,disposeExhibit,getModel:()=>model,commit:ready,ui:{galleryState(index,target,state){ui.galleryState(index,target,state);gesture.galleryState(index,target,state);}},cancelIntro,hideInfo,restoreInfo});
  cleanup.push(()=>gallery.dispose());
  function cancelIntro(){
   introCancelled=true;finishIntro();gallery?.cancel();
  }
  function finishIntro(){if(!intro)return;controls.enableDamping=intro.damping;controls.autoRotate=intro.auto;if(!intro.infoHidden)restoreInfo();intro=null;document.body.classList.remove('museum-opening');}
- listen(renderer.domElement,'pointerdown',cancelIntro,{capture:true});listen(renderer.domElement,'wheel',cancelIntro,{capture:true,passive:true});
+ const interruptView=()=>{if(!gesture.active)cancelIntro();};
+ listen(renderer.domElement,'pointerdown',interruptView,{capture:true});listen(renderer.domElement,'wheel',interruptView,{capture:true,passive:true});
  listen(document.getElementById('resetViewBtn'),'click',cancelIntro,{capture:true});
  listen(document,'visibilitychange',()=>{if(document.hidden)cancelIntro();});
  listen(document,'keydown',e=>{if(e.key==='Escape')cancelIntro();});
@@ -85,6 +86,7 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  function ready(exhibit,index=0){
   ui.setExhibit(index);model=exhibit;exhibitIndex=index;anchors=null;pendingHotspot=null;
   onExhibitChange(exhibit);
+  gesture.changeModel();
  }
  function locateHotspots(){
   model.updateWorldMatrix(true,true);const box=new THREE.Box3().setFromObject(model),center=box.getCenter(new THREE.Vector3()),height=box.max.y-box.min.y;

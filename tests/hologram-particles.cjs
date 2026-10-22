@@ -1,18 +1,24 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),{pathToFileURL}=require('node:url');
 const file=path.resolve(__dirname,'../enhancements/gesture-particles.js');
 const source=fs.readFileSync(file,'utf8').replaceAll('export function ','function ').replaceAll('import.meta.url',JSON.stringify(pathToFileURL(file).href));
-const handCode=source.slice(source.indexOf('function handResult('),source.indexOf('function startCamera('));
-for(const landmarks of [null,Array.from({length:21},()=>({x:0,y:0}))]){
- const target={x:.2,y:.7,pinch:1};vm.runInNewContext(handCode+';handResult(landmarks,320,240);',{target,landmarks,status(){},setPointer(){}});assert.deepEqual(target,{x:.2,y:.7,pinch:0},'Lost or invalid tracking releases the pinch without moving the hologram');
-}
 (async()=>{
  const THREE=await import(pathToFileURL(path.resolve(__dirname,'../vendor/three.module.js')).href);
- let reads=0,reduced=false,desktop=true,resolvePermission,stops=0,failImage=false,warnings=0;
+ let reads=0,reduced=false,desktop=true,resolvePermission,stops=0,failImage=false,warnings=0,now=0,worker=null,terminations=0,nextTimer=0;const timers=new Map();
  const document=new EventTarget();document.hidden=false;document.getElementById=()=>null;
- document.createElement=type=>{assert.equal(type,'canvas');return {width:2,height:2,getContext(){return {drawImage(){if(failImage)throw new DOMException('Cannot read this image','SecurityError');},getImageData(){reads++;return {data:new Uint8ClampedArray([0,0,255,255,255,255,255,255,255,0,0,255,0,255,0,255])};}};}};};
- const context={THREE,document,console:{...console,warn(){warnings++;}},performance,DOMException,setTimeout,clearTimeout,URL,matchMedia:()=>({get matches(){return reduced;}}),Worker:function(){throw Error('Inference must not start before camera permission');},OffscreenCanvas:function(){},createImageBitmap(){},navigator:{mediaDevices:{getUserMedia(){return new Promise(resolve=>resolvePermission=resolve);}}}};
- vm.createContext(context);vm.runInContext(source+';globalThis.api={sampleExhibit,createGestureParticles};',context);
- const {sampleExhibit,createGestureParticles}=context.api;
+ document.body={append(){}};
+ document.createElement=type=>{if(type==='video')return {readyState:0,currentTime:0,style:{},setAttribute(){},play:()=>Promise.resolve(),pause(){},remove(){}};assert.equal(type,'canvas');return {width:2,height:2,getContext(){return {drawImage(){if(failImage)throw new DOMException('Cannot read this image','SecurityError');},getImageData(){reads++;return {data:new Uint8ClampedArray([0,0,255,255,255,255,255,255,255,0,0,255,0,255,0,255])};}};}};};
+ const context={THREE,document,console:{...console,warn(){warnings++;}},performance:{now:()=>now},DOMException,setTimeout(fn){const id=++nextTimer;timers.set(id,fn);return id;},clearTimeout(id){timers.delete(id);},URL,matchMedia:()=>({get matches(){return reduced;}}),Worker:class{constructor(){worker=this;}postMessage(message){assert.equal(message.type,'init');queueMicrotask(()=>this.onmessage?.({data:{type:'ready'}}));}terminate(){terminations++;}},OffscreenCanvas:function(){},createImageBitmap(){},navigator:{mediaDevices:{getUserMedia(){return new Promise(resolve=>resolvePermission=resolve);}}}};
+ vm.createContext(context);vm.runInContext(source+';globalThis.api={sampleExhibit,createGestureParticles,classifyHand};',context);
+ const {sampleExhibit,createGestureParticles,classifyHand}=context.api;
+ function hand(kind,offset=0){
+  const points=Array.from({length:21},()=>({x:.5+offset,y:.65}));points[0]={x:.5+offset,y:.85};
+  for(let n=0;n<4;n++){const base=5+n*4,x=.4+n*.065+offset;points[base]={x,y:n===1?.6:.63};points[base+1]={x,y:.48};points[base+2]={x,y:.4};const extended=kind==='open'||kind==='pinch'||(kind==='one'&&n===0)||(kind==='two'&&n<2);points[base+3]={x,y:extended?.25:.72};}
+  points[4]=kind==='pinch'?{x:points[8].x+.01,y:points[8].y}:{x:.2+offset,y:.7};return points;
+ }
+ for(const kind of ['one','two','open','fist','pinch'])assert.equal(classifyHand(hand(kind),320,240).gesture,kind,kind+' is classified independently');
+ for(const bad of [null,[],{length:21},Array(21).fill(null),Array.from({length:21},()=>({x:0,y:0})),hand('open').map(p=>({...p,x:NaN}))])assert.equal(classifyHand(bad,320,240),null,'Malformed or tiny hands are ignored');
+ for(const dimensions of [[0,240],[320,0],[Infinity,240],[320,NaN]])assert.equal(classifyHand(hand('open'),...dimensions),null);
+ const uncertain=hand('pinch');uncertain[4].x=uncertain[8].x+.10;assert.equal(classifyHand(uncertain,320,240,'pinch').gesture,'pinch','Pinch hysteresis avoids threshold flicker');assert.equal(classifyHand(uncertain,320,240).gesture,'open');
  function model(){
   const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute([-1,-1,0,1,-1,0,0,1,0],3));geometry.setAttribute('uv',new THREE.Float32BufferAttribute([.25,.25,.25,.25,.25,.25],2));
   const texture=new THREE.Texture({width:2,height:2});texture.colorSpace=THREE.SRGBColorSpace;texture.flipY=false;
@@ -28,9 +34,9 @@ for(const landmarks of [null,Array.from({length:21},()=>({x:0,y:0}))]){
  failImage=true;const fallback=sampleExhibit(THREE,first,20);failImage=false;assert.equal(fallback.textureAvailable,false);assert.equal(warnings,1,'Unreadable image is caught once per map');assert(Array.from(fallback.colors).every(value=>value===1),'Unreadable images retain the source material color');
  assert.throws(()=>sampleExhibit(THREE,new THREE.Group(),10),/no surface/);assert.throws(()=>sampleExhibit(THREE,null,10),/No exhibit/);
  const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(45,390/844,.1,100);camera.position.set(0,.8,5);camera.lookAt(0,0,0);camera.updateMatrixWorld();
- let currentModel=first;const cameraPosition=camera.position.clone(),cameraQuaternion=camera.quaternion.clone(),states=[];
+ let currentModel=first;const cameraPosition=camera.position.clone(),cameraQuaternion=camera.quaternion.clone(),states=[],switches=[];
  const viewport={width:390,height:844,top:0};
- const effect=createGestureParticles({THREE,scene,camera,renderer:{domElement:{getBoundingClientRect:()=>viewport},getPixelRatio:()=>2},isDesktop:()=>desktop,getModel:()=>currentModel,onStatus:s=>states.push(s.state)});
+ const effect=createGestureParticles({THREE,scene,camera,renderer:{domElement:{getBoundingClientRect:()=>viewport},getPixelRatio:()=>2},isDesktop:()=>desktop,getModel:()=>currentModel,onStatus:s=>states.push(s),onSwitch:direction=>switches.push(direction)});
  const group=scene.getObjectByName('museum-gesture-hologram'),points=scene.getObjectByName('museum-gesture-vessel'),line=group.children[0].children.find(object=>object.isLineSegments),trail=group.children[0].children.find(object=>object.isPoints&&object!==points);
  const resources=[];group.traverse(o=>{if(o.geometry)resources.push(o.geometry);if(o.material)resources.push(o.material);});const disposed=new Map(resources.map(r=>[r,0]));resources.forEach(r=>r.addEventListener('dispose',()=>disposed.set(r,disposed.get(r)+1)));
  assert.equal(group.visible,false);assert.equal(resources.length,8);effect.setEnabled(true);assert.equal(first.visible,false);assert.equal(points.geometry.attributes.position.count,12000);assert.equal(reads,5);
@@ -39,20 +45,41 @@ for(const landmarks of [null,Array.from({length:21},()=>({x:0,y:0}))]){
  effect.setPointer(.8,.3,1);for(let i=0;i<40;i++)effect.update(1/60);assert(points.material.uniforms.charge.value>.9);
  effect.setPointer(.2,.6,0);effect.update(1/60);assert.equal(line.material.uniforms.release.value,0,'Releasing a charge emits one light ring');
  for(let i=0;i<65;i++)effect.update(1/60);assert(points.material.uniforms.spread.value>.7,'Release opens the spatial pattern');
- for(let i=0;i<180;i++)effect.update(1/60);assert.equal(points.material.uniforms.spread.value,0,'Pattern returns to the vessel');
+ for(let i=0;i<240;i++)effect.update(1/60);assert.equal(points.material.uniforms.spread.value,0,'Pattern returns to the vessel');
+ const seed=points.material.uniforms.layoutSeed.value;effect.setPointer(.5,.5,1);for(let i=0;i<40;i++)effect.update(1/60);effect.setPointer(.5,.5,0);effect.update(1/60);assert.notEqual(points.material.uniforms.layoutSeed.value,seed,'Each deliberate release selects a new three-dimensional layout');
+ assert.equal(effect.setAction('invalid'),false);assert.equal(effect.action,'orbit');effect.setAction('vortex');for(let i=0;i<80;i++)effect.update(1/60);assert(points.material.uniforms.swirl.value>.99);assert.equal(effect.action,'vortex');assert.equal(states[states.length-1].action,'vortex');
+ effect.setAction('scatter');const scatterSeed=points.material.uniforms.layoutSeed.value;effect.setAction('scatter');assert.notEqual(points.material.uniforms.layoutSeed.value,scatterSeed,'Repeated scatter activation starts a new layout');for(let i=0;i<80;i++)effect.update(1/60);assert(points.material.uniforms.spread.value>.99);assert(points.material.uniforms.swirl.value<.01);
+ effect.setAction('orbit');for(let i=0;i<80;i++)effect.update(1/60);assert.equal(points.material.uniforms.spread.value,0);assert.equal(effect.action,'orbit');
+ effect.setPointer(.5,.5,1);for(let i=0;i<40;i++)effect.update(1/60);const cancelledSeed=points.material.uniforms.layoutSeed.value;effect.cancelInputs();effect.update(1/60);assert.equal(line.material.uniforms.release.value,-1);assert.equal(points.material.uniforms.layoutSeed.value,cancelledSeed,'Cancelled input never releases a burst');
+ 
  effect.setPointer(.5,.5,1);for(let i=0;i<40;i++)effect.update(1/60);effect.stopCamera();for(let i=0;i<250;i++)effect.update(1/60);assert(points.material.uniforms.charge.value<.01);assert.equal(points.material.uniforms.spread.value,0,'Stopping camera cannot leave a charged or spread vessel');
  assert(camera.position.equals(cameraPosition)&&camera.quaternion.equals(cameraQuaternion),'Hologram never rewrites the viewing camera');
  assert(Array.from(trail.geometry.attributes.position.array).every(Number.isFinite));
  desktop=false;effect.update(0);assert.equal(points.geometry.drawRange.count,6000,'Resizing to mobile bounds transparency load');
  reduced=true;effect.update(1/60);assert.equal(trail.visible,false);assert.equal(line.material.uniforms.release.value,-1);assert.equal(points.material.uniforms.reduced.value,1);reduced=false;
- for(const view of [{width:320,height:568,dockTop:320},{width:844,height:390,dockTop:191}]){
-  Object.assign(viewport,view);camera.aspect=view.width/view.height;camera.updateProjectionMatrix();document.getElementById=()=>({hidden:false,getBoundingClientRect:()=>({top:view.dockTop})});effect.update(0);group.updateMatrixWorld(true);
-  const v=new THREE.Vector3(),position=points.geometry.attributes.position;for(let i=0;i<position.count;i+=20){v.fromBufferAttribute(position,i).applyMatrix4(points.matrixWorld).project(camera);assert((-v.y*.5+.5)*view.height<view.dockTop-6,'A short-screen dock cannot cover the formed vessel');}
+ for(const view of [{width:320,height:568,dockTop:320,guideBottom:95},{width:844,height:390,dockTop:220,guideBottom:64}]){
+  Object.assign(viewport,view);camera.aspect=view.width/view.height;camera.updateProjectionMatrix();document.getElementById=id=>({hidden:false,getBoundingClientRect:()=>id==='museumGestureGuide'?{bottom:view.guideBottom}:{top:view.dockTop}});effect.update(0);group.updateMatrixWorld(true);
+  const v=new THREE.Vector3(),position=points.geometry.attributes.position;for(let i=0;i<position.count;i+=20){v.fromBufferAttribute(position,i).applyMatrix4(points.matrixWorld).project(camera);const py=(-v.y*.5+.5)*view.height;assert(py<view.dockTop-6,'A short-screen dock cannot cover the formed vessel');assert(py>view.guideBottom+6,'The guide cannot cover the formed vessel');}
+  const uniforms=points.material.uniforms,h=2*Math.tan(camera.fov*Math.PI/360)*4;
+  const top=(-((uniforms.fieldCenter.value.y+uniforms.fieldSize.value.y/2)/h)*1+.5)*view.height,bottom=(-((uniforms.fieldCenter.value.y-uniforms.fieldSize.value.y/2)/h)*1+.5)*view.height;
+  assert(top>view.guideBottom+12&&bottom<view.dockTop-16,'All shader scatter directions stay inside the free viewport');
  }
  Object.assign(viewport,{width:390,height:844});camera.aspect=390/844;camera.updateProjectionMatrix();document.getElementById=()=>null;
  effect.setEnabled(false);assert.equal(first.visible,true);assert.equal(group.visible,false);effect.setEnabled(true);assert.equal(reads,beforeReads,'Re-entry reuses surface and texture samples');assert.equal(points.geometry.attributes.position.array,cached);
  const pending=effect.startCamera();effect.setEnabled(false);resolvePermission({getTracks:()=>[{stop(){stops++;}}]});await pending;assert.equal(stops,1,'Late camera permission cannot leave an active track');assert.equal(effect.cameraActive,false);
- currentModel=model();currentModel.visible=false;effect.setEnabled(true);assert.notEqual(points.geometry.attributes.position.array,cached,'Another exhibit gets its own silhouette');effect.setEnabled(false);assert.equal(currentModel.visible,false,'Exit preserves a previously hidden model');
- effect.dispose();effect.dispose();assert.equal(scene.getObjectByName('museum-gesture-hologram'),undefined);for(const resource of resources)assert.equal(disposed.get(resource),resource===points.geometry?2:1,'Every owned GPU resource is disposed exactly once per allocation');
- console.log('Hologram: UV/flipY color sampling, deterministic geometry, interior exclusion, scan/charge/release/return, bounded mobile points, reduced motion, cache, camera race, source visibility and disposal pass.');
+ currentModel=model();currentModel.visible=false;effect.setEnabled(true);assert.notEqual(points.geometry.attributes.position.array,cached,'Another exhibit gets its own silhouette');
+ const second=currentModel,beforeFailure=points.geometry.attributes.position.array;currentModel=new THREE.Group();assert.throws(()=>effect.changeModel(),/no surface/);assert.equal(second.visible,false);assert.equal(points.geometry.attributes.position.array,beforeFailure,'A failed sample leaves the old particle buffer intact');currentModel=second;
+ const cameraPending=effect.startCamera();resolvePermission({getTracks:()=>[{stop(){stops++;}}]});await cameraPending;assert.equal(effect.cameraActive,true);const activeVideo=effect.video;
+ function feed(kind,offset=0,advance=100){now+=advance;worker.onmessage({data:{type:'result',landmarks:kind?hand(kind,offset):null,width:320,height:240}});}
+ function stable(kind,offset=0){for(let i=0;i<5;i++)feed(kind,offset);}
+ feed(null);stable('one');feed('one',.3);assert.deepEqual(switches,[1],'A deliberate index swipe works after the initial empty camera view');switches.length=0;stable('fist');
+ stable('open');assert.equal(effect.action,'scatter');stable('one');feed('one',.28,400);assert.deepEqual(switches,[1],'A leftward mirrored index swipe advances once');for(let i=0;i<20;i++)feed('one',i%2?.28:-.28);assert.equal(switches.length,1,'Holding the same finger cannot trigger repeated switches');
+ stable('two');assert.equal(effect.action,'orbit');assert.equal(states[states.length-1].gesture,'two','Stable recognized pose is included in status');const statusCount=states.length;feed('two',-.2);assert.equal(states.length,statusCount,'Unchanged tracking pose does not emit every frame');effect.update(.05);assert.notEqual(group.children[0].rotation.y,-.24,'Two fingers rotate the formed vessel');assert.equal(points.material.uniforms.charge.value,0,'Two fingers never charge');stable('one');feed('one',-.28);assert.deepEqual(switches,[1,-1],'Rearmed rightward index swipe goes back');
+ stable('open');effect.setSwitching(true);stable('one');feed('one',.3);assert.equal(switches.length,2,'Switching gates inference input');effect.setSwitching(false);stable('one');feed('one',.3);assert.equal(switches.length,2,'Switch completion requires a new neutral pose before another swipe');
+ stable('fist');assert.equal(effect.action,'orbit');stable('pinch');for(let i=0;i<40;i++)effect.update(1/60);assert(points.material.uniforms.charge.value>.8);const seedBeforeLoss=points.material.uniforms.layoutSeed.value;feed(null);effect.update(1/60);assert.equal(points.material.uniforms.charge.value,0);assert.equal(points.material.uniforms.layoutSeed.value,seedBeforeLoss,'Lost tracking cancels a held charge without a burst');stable('one',-.3);assert.equal(switches.length,2,'Returning at a different position establishes a fresh anchor without switching');feed('one',0,300);assert.deepEqual(switches,[1,-1,1],'A deliberate swipe from the new stable anchor works after tracking returns');
+ stable('open');const cameraState=states[states.length-1].state;const scanBefore=points.material.uniforms.scan.value;effect.changeModel();assert.equal(points.material.uniforms.scan.value,scanBefore,'Same-model refresh does not restart the scan');currentModel=first;effect.changeModel();assert.equal(second.visible,false,'Previously hidden source visibility survives an in-mode switch');assert.equal(first.visible,false);assert.equal(effect.action,'orbit');assert.equal(points.geometry.attributes.position.array,cached);assert.equal(points.material.uniforms.scan.value,-1.15);assert.equal(effect.video,activeVideo);assert.equal(effect.cameraActive,true);assert.equal(states[states.length-1].state,cameraState,'Changing the shape retains the active camera status');assert.equal(terminations,0,'Changing the shape does not restart the tracking worker');stable('one',-.3);feed('one',.3,400);assert.equal(switches.length,3,'A held index after the model change remains consumed until another pose');
+ effect.setEnabled(false);assert.equal(first.visible,true);assert.equal(effect.cameraActive,false);assert.equal(terminations,1);
+ 
+ effect.dispose();effect.dispose();assert.equal(scene.getObjectByName('museum-gesture-hologram'),undefined);for(const resource of resources)assert.equal(disposed.get(resource),resource===points.geometry?3:1,'Every owned GPU resource is disposed exactly once per allocation');
+ console.log('Hologram: UV sampling, source preservation, orbit/vortex/scatter, nonrepeating releases, guide/dock bounds, two-finger rotation, armed index switching, pose hysteresis, lost-hand cancellation, transactional model switch, camera race/session retention, bounded points and disposal pass.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

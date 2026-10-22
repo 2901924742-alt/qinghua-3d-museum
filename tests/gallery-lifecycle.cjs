@@ -7,12 +7,12 @@ const unhandled=[];
 process.on('unhandledRejection',error=>unhandled.push(error));
 const tick=()=>new Promise(setImmediate);
 async function until(test){for(let i=0;i<100;i++){if(test())return;await tick()}throw new Error('Lifecycle test did not progress');}
-function fixture({timeout=30000,holdLoads=0,compileFailures=0,holdFrame=false,withTexture=false,reduced=false,desktop=true}={}){
+function fixture({timeout=30000,holdLoads=0,compileFailures=0,commitFailures=0,holdFrame=false,withTexture=false,reduced=false,desktop=true}={}){
  let now=0,live=1,peak=1,model={url:'original'},gallery;
- let compileCalls=0,frameId=0;
- const loadGates=[],frames=new Map(),disposed=new Set(),signals=[],states=[],commits=[],loads=[],commitDistances=[];
- const camera={position:new Vector(0,.8,5)},controls={target:new Vector(0,.1,0),target0:new Vector(0,.1,0),position0:new Vector(0,.8,5),maxDistance:40,enableDamping:true,autoRotate:true,update(){}};
- const scene={add(){},remove(){}};
+ let compileCalls=0,frameId=0,controlUpdates=0,infoChanges=0;
+ const loadGates=[],frames=new Map(),disposed=new Set(),signals=[],states=[],galleryStates=[],commits=[],loads=[],commitDistances=[],sceneObjects=new Set([model]);
+ const camera={position:new Vector(0,.8,5)},controls={target:new Vector(0,.1,0),target0:new Vector(0,.1,0),position0:new Vector(0,.8,5),maxDistance:40,enabled:true,enableDamping:true,autoRotate:true,update(){controlUpdates++;}};
+ const scene={add(object){sceneObjects.add(object);},remove(object){sceneObjects.delete(object);}};
  const makeModel=url=>{live++;peak=Math.max(peak,live);return {url,traverse:fn=>{if(withTexture)fn({isMesh:true,material:{map:{isTexture:true}}})}}};
  // Older Safari exposes aborted/events but neither reason nor throwIfAborted.
  class LegacyAbortController extends AbortController{constructor(){super();Object.defineProperties(this.signal,{reason:{get:()=>undefined},throwIfAborted:{value:undefined}});}}
@@ -29,10 +29,10 @@ function fixture({timeout=30000,holdLoads=0,compileFailures=0,holdFrame=false,wi
   scene,camera,controls,
   loadExhibit:(url,signal)=>{signals.push(signal);loads.push(url);if(holdLoads>0){holdLoads--;return new Promise((resolve,reject)=>loadGates.push({resolve(){const candidate=makeModel(url);resolve(candidate);return candidate;},reject}));}return Promise.resolve(makeModel(url));},
   disposeExhibit:object=>{assert(!disposed.has(object),'An exhibit was disposed twice');disposed.add(object);live--},
-  getModel:()=>model,commit:(next,index)=>{model=next;commits.push({url:next.url,index});commitDistances.push(camera.position.distanceTo(controls.target))},
-  ui:{galleryState:(index,target,state)=>states.push(state)},cancelIntro:()=>gallery.cancel(),hideInfo(){},restoreInfo(){}
+  getModel:()=>model,commit:(next,index)=>{model=next;commits.push({url:next.url,index});commitDistances.push(camera.position.distanceTo(controls.target));if(commitFailures>0){commitFailures--;throw new Error('Injected presentation failure');}},
+  ui:{galleryState:(index,target,state)=>{states.push(state);galleryStates.push({index,target,state});}},cancelIntro:()=>gallery.cancel(),hideInfo(){infoChanges++;},restoreInfo(){infoChanges++;}
  });
- return {gallery,loadGates,disposed,signals,states,commits,loads,commitDistances,camera,controls,setNow:value=>now=value,
+ return {gallery,loadGates,disposed,signals,states,galleryStates,commits,loads,commitDistances,camera,controls,sceneObjects,setNow:value=>now=value,get model(){return model;},get controlUpdates(){return controlUpdates;},get infoChanges(){return infoChanges;},
   flushFrames(){const ready=[...frames.values()];frames.clear();ready.forEach(fn=>fn());},get frames(){return frames.size;},get compileCalls(){return compileCalls;},get live(){return live},get peak(){return peak}};
 }
 async function timeoutDuringPreparation(){
@@ -109,4 +109,53 @@ async function distantSwap(){
  const cancelled=fixture();await cancelled.gallery.step(1);cancelled.setNow(1060);cancelled.gallery.update();cancelled.gallery.cancel();assert.equal(cancelled.gallery.index,0);assert.equal(cancelled.live,1);assert.equal(cancelled.controls.autoRotate,true);
  console.log('Swap occurs at 40m during the distant hold, including delayed frames; approach and cancellation restore controls');
 }
-(async()=>{({Vector3:Vector}=await import(require('node:url').pathToFileURL(path.resolve(__dirname,'../vendor/three.module.js')).href));await timeoutDuringPreparation();await concurrentPreparation();await cancelWhileFrameSuspended();await timeoutWhileFrameSuspended();await lateLoaderResults();await compileFailureRecovery();await reducedMotion();await distantSwap();await tick();assert.equal(forbiddenAsyncReads,0);assert.deepEqual(unhandled,[]);console.log('Gallery lifecycle checks pass without asynchronous shader polling or unhandled rejections');})().catch(error=>{console.error(error);process.exitCode=1});
+async function directSwitches(){
+ const f=fixture({withTexture:true});f.controls.enabled=false;f.controls.autoRotate=false;
+ const initialCamera=f.camera.position.clone(),initialTarget=f.controls.target.clone();
+ for(const [index,url] of [[1,'next'],[2,'third'],[3,'fourth'],[0,'original']]){
+  const previous=f.model;await f.gallery.step(1,{animate:false});
+  assert.equal(f.gallery.index,index);assert.equal(f.model.url,url);assert.equal(f.gallery.active,false);
+  assert(f.disposed.has(previous));assert(!f.disposed.has(f.model));assert.deepEqual([...f.sceneObjects],[f.model]);assert.equal(f.live,1);
+  assert.deepEqual(f.galleryStates.at(-1),{index,target:index,state:'idle'});
+  f.setNow(100000);f.gallery.update();
+  assert(f.camera.position.equals(initialCamera));assert(f.controls.target.equals(initialTarget));
+  assert.equal(f.controls.enabled,false);assert.equal(f.controls.autoRotate,false);assert.equal(f.controls.enableDamping,true);assert.equal(f.controls.maxDistance,40);
+  assert.equal(f.controlUpdates,0);assert.equal(f.infoChanges,0);assert(!f.states.includes('moving'));
+ }
+ assert.equal(f.compileCalls,4);assert.equal(f.commits.length,4);assert.equal(f.peak,2);
+ console.log('Direct switching cycles all exhibits and disposes replaced models without camera, controls, or info changes');
+}
+async function directFailureRecovery(){
+ for(const failure of [{compileFailures:1},{commitFailures:1}]){
+  const f=fixture(failure),original=f.model,initialCamera=f.camera.position.clone();
+  await f.gallery.step(1,{animate:false});
+  assert.equal(f.gallery.index,0);assert.equal(f.model,original);assert(!f.disposed.has(original));assert.deepEqual([...f.sceneObjects],[original]);
+  assert.equal(f.gallery.active,false);assert.equal(f.live,1);assert.equal(f.disposed.size,1);assert.equal(f.states.at(-1),'error');
+  if(failure.commitFailures)assert.deepEqual(f.commits,[{url:'next',index:1},{url:'original',index:0}]);
+  assert(f.camera.position.equals(initialCamera));assert.equal(f.controlUpdates,0);assert.equal(f.infoChanges,0);
+  await f.gallery.step(1,{animate:false});
+  assert.equal(f.gallery.index,1);assert.equal(f.model.url,'next');assert(f.disposed.has(original));assert.equal(f.live,1);assert.deepEqual([...f.sceneObjects],[f.model]);
+ }
+ console.log('Direct compile/presentation failures preserve the old exhibit, roll back partial commits, and allow retry');
+}
+async function directCancellation(){
+ const suspended=fixture({holdFrame:true,withTexture:true});
+ const upload=suspended.gallery.step(1,{animate:false});await until(()=>suspended.frames===1);suspended.gallery.cancel();await upload;
+ assert.equal(suspended.frames,0);assert.equal(suspended.commits.length,0);assert.equal(suspended.live,1);assert.equal(suspended.gallery.active,false);
+ for(const action of ['cancel','timeout']){
+  const f=fixture({holdLoads:1,timeout:action==='timeout'?5:30000}),original=f.model;
+  const first=f.gallery.step(1,{animate:false});await until(()=>f.loadGates.length===1);if(action==='cancel')f.gallery.cancel();await first;
+  assert.equal(f.model,original);assert.equal(f.gallery.active,false);assert.equal(f.commits.length,0);assert.equal(f.live,1);
+  await f.gallery.step(1,{animate:false});const selected=f.model,disposedBefore=f.disposed.size;
+  const late=f.loadGates[0].resolve();await tick();await tick();
+  assert(f.disposed.has(late));assert.equal(f.disposed.size,disposedBefore+1);assert.equal(f.model,selected);assert.equal(f.gallery.index,1);assert.equal(f.commits.length,1);
+  assert.equal(f.live,1);assert.deepEqual([...f.sceneObjects],[selected]);assert.equal(f.infoChanges,0);assert.equal(f.controlUpdates,0);
+ }
+ const concurrent=fixture({holdFrame:true,withTexture:true}),choices=[];
+ choices.push(concurrent.gallery.step(1,{animate:false}));await until(()=>concurrent.frames===1);
+ choices.push(concurrent.gallery.step(1,{animate:false}));choices.push(concurrent.gallery.step(1,{animate:false}));await until(()=>concurrent.loads.length===2&&concurrent.frames===1);
+ concurrent.flushFrames();await Promise.all(choices);
+ assert.deepEqual(concurrent.commits,[{url:'fourth',index:3}]);assert.equal(concurrent.gallery.index,3);assert.equal(concurrent.live,1);assert.equal(concurrent.peak,2);
+ console.log('Direct cancellation/timeout releases preparation; late results and rapid choices cannot replace the latest exhibit');
+}
+(async()=>{({Vector3:Vector}=await import(require('node:url').pathToFileURL(path.resolve(__dirname,'../vendor/three.module.js')).href));await timeoutDuringPreparation();await concurrentPreparation();await cancelWhileFrameSuspended();await timeoutWhileFrameSuspended();await lateLoaderResults();await compileFailureRecovery();await reducedMotion();await distantSwap();await directSwitches();await directFailureRecovery();await directCancellation();await tick();assert.equal(forbiddenAsyncReads,0);assert.deepEqual(unhandled,[]);console.log('Gallery lifecycle checks pass without asynchronous shader polling or unhandled rejections');})().catch(error=>{console.error(error);process.exitCode=1});
