@@ -22,8 +22,10 @@ function checkFocus(source, name) {
         id, hidden: false, getClientRects: () => [1], focus() {document.activeElement = this;}
     }));
     const surface = {querySelectorAll: () => nodes};
-    vm.runInContext(source, legacy({document, dialog: surface, dock: surface, mode: true,
-        close() {}, listen(target, type, fn) {assert.equal(type, 'keydown'); onKey = fn;}}));
+    const showUI = {focus() {document.activeElement = this;}};
+    const context = legacy({document, dialog: surface, dock: surface, mode: true, uiHidden: false, showUI,
+        close() {}, listen(target, type, fn) {assert.equal(type, 'keydown'); onKey = fn;}});
+    vm.runInContext(source, context);
     function press(node, shiftKey = false, key = 'Tab') {
         document.activeElement = node; prevented = 0;
         onKey({key, shiftKey, preventDefault() {prevented++;}});
@@ -34,6 +36,10 @@ function checkFocus(source, name) {
     press(nodes[0], false, 'ArrowRight'); assert.equal(document.activeElement, nodes[0]); assert.equal(prevented, 0);
     nodes.splice(1);
     for (const shift of [false, true]) {press(nodes[0], shift); assert.equal(document.activeElement, nodes[0]); assert.equal(prevented, 1);}
+    if (name === 'Gesture dock') {
+        context.uiHidden = true;
+        for (const shift of [false, true]) {press(showUI, shift); assert.equal(document.activeElement, showUI); assert.equal(prevented, 1);}
+    }
     console.log(`${name}: forward/reverse focus wrap, middle keys and one control pass without Array.at`);
 }
 (async () => {

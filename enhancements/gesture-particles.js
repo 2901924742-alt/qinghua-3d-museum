@@ -78,17 +78,17 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
  group.name='museum-gesture-hologram';group.visible=false;group.add(art);scene.add(group);
  const seeds=new Float32Array(count);for(let i=0;i<count;i++)seeds[i]=(i*.61803398875)%1;
  geometry.setAttribute('seed',new THREE.BufferAttribute(seeds,1));
- const uniforms={time:{value:0},scan:{value:-1.15},spread:{value:0},swirl:{value:0},charge:{value:0},pointSize:{value:4},reduced:{value:0},layoutSeed:{value:1},previousSeed:{value:1},layoutMix:{value:1},fieldCenter:{value:new THREE.Vector2()},fieldSize:{value:new THREE.Vector2(1,1)}};
+ const uniforms={time:{value:0},scan:{value:-1.15},spread:{value:0},swirl:{value:0},charge:{value:0},pointSize:{value:4},reduced:{value:0},layoutSeed:{value:1},previousSeed:{value:1},layoutMix:{value:1},fieldCenter:{value:new THREE.Vector2()},fieldSize:{value:new THREE.Vector2(1,1)},fieldParallax:{value:new THREE.Vector2()}};
  const common={transparent:true,depthWrite:false,depthTest:false,toneMapped:false,fog:false};
  const material=new THREE.ShaderMaterial({...common,blending:THREE.AdditiveBlending,uniforms,vertexColors:true,
-  vertexShader:`attribute float seed;uniform float time,scan,spread,swirl,charge,pointSize,reduced,layoutSeed,previousSeed,layoutMix;uniform vec2 fieldCenter,fieldSize;varying vec3 tint;varying float strength;
+  vertexShader:`attribute float seed;uniform float time,scan,spread,swirl,charge,pointSize,reduced,layoutSeed,previousSeed,layoutMix;uniform vec2 fieldCenter,fieldSize,fieldParallax;varying vec3 tint;varying float strength;
   float noise(float n){return fract(sin(n*127.1+seed*311.7)*43758.5453);}
-  vec3 cloud(float patternSeed){float depth=-4.0+(noise(patternSeed+3.0)-.5)*1.8;vec2 drift=vec2(sin(time*.21+seed*20.0),cos(time*.17+seed*25.0))*.5+.5;vec2 xy=(mix(vec2(noise(patternSeed),noise(patternSeed+1.0)),drift,.06*(1.0-reduced))-.5)*fieldSize+fieldCenter;return vec3(xy*(-depth*.25),depth);}
+  vec3 cloud(float patternSeed){float z=noise(patternSeed)*2.0-1.0,r=pow(noise(patternSeed+1.0),.3333333),a=noise(patternSeed+2.0)*6.2831853+time*.11*(1.0-reduced);vec3 ball=vec3(cos(a)*sqrt(max(0.0,1.0-z*z)),sin(a)*sqrt(max(0.0,1.0-z*z)),z)*r;float turn=time*.09*(1.0-reduced),c=cos(turn),s=sin(turn);ball.xz=mat2(c,-s,s,c)*ball.xz;float depth=-4.0+ball.z*2.4;vec2 xy=ball.xy*fieldSize*.40+fieldCenter*(-depth*.25)+fieldParallax*ball.z*fieldSize*.12;return vec3(xy,depth);}
   void main(){float phase=seed*6.2831853;vec3 p=position*(1.0-charge*.1);vec4 mv=modelViewMatrix*vec4(p,1.0);
   float u=fract(seed*3.0),a=u*15.08+floor(seed*3.0)*2.094+time*.65*(1.0-reduced),radius=.3+.65*sqrt(noise(9.0));float depth=-4.0+sin(a)*radius*.85;
   vec2 spiral=vec2(cos(a)*radius*fieldSize.x*.43,(u-.5)*fieldSize.y*.84)+fieldCenter;vec3 vortex=vec3(spiral*(-depth*.25),depth);
   float open=spread*(1.0-charge);mv.xyz=mix(mv.xyz,vortex,swirl*(1.0-charge));mv.xyz=mix(mv.xyz,mix(cloud(previousSeed),cloud(layoutSeed),smoothstep(0.0,1.0,layoutMix)),open);
-  float reveal=1.0-smoothstep(scan-.08,scan+.05,position.y);float band=exp(-abs(position.y-scan)*22.0);float ink=clamp((color.b-color.r)*3.0+.15,0.0,1.0);tint=mix(vec3(.22,.48,1.0),vec3(.50,.82,1.0),ink);tint=mix(tint,vec3(.82,.94,1.0),band*.7+charge*.14);float front=mix(.12,1.0,smoothstep(-.1,.65,normalize(normalMatrix*normal).z));strength=reveal*(mix(.38,.95,ink)+band*.8+charge*.35)*mix(front,1.0,max(open,swirl));gl_Position=projectionMatrix*mv;gl_PointSize=pointSize*(.72+seed*.45+band*.3)*(1.0-open*.26)*mix(1.0,4.0/max(2.5,-mv.z),max(open,swirl)*.65);}`,
+  float reveal=1.0-smoothstep(scan-.08,scan+.05,position.y);float band=exp(-abs(position.y-scan)*22.0);float ink=clamp((color.b-color.r)*3.0+.15,0.0,1.0);tint=mix(vec3(.22,.48,1.0),vec3(.50,.82,1.0),ink);tint=mix(tint,vec3(.82,.94,1.0),band*.7+charge*.14);float depthScale=clamp(4.0/max(1.6,-mv.z),.55,2.2);tint=mix(tint,vec3(.72,.9,1.0),open*clamp(depthScale-1.0,0.0,1.0)*.45);float front=mix(.12,1.0,smoothstep(-.1,.65,normalize(normalMatrix*normal).z));strength=reveal*(mix(.38,.95,ink)+band*.8+charge*.35)*mix(front,1.0,max(open,swirl))*mix(1.0,depthScale,open*.65);gl_Position=projectionMatrix*mv;gl_PointSize=pointSize*(.72+seed*.45+band*.3)*(1.0-open*.26)*mix(1.0,depthScale,max(open,swirl));}`,
   fragmentShader:`varying vec3 tint;varying float strength;void main(){float r=length(gl_PointCoord-.5)*2.0;if(r>1.0)discard;float core=exp(-r*r*10.0),glow=exp(-r*r*4.8)*.25;gl_FragColor=vec4(tint,(core+glow)*strength);}`});
  const points=new THREE.Points(geometry,material);points.name='museum-gesture-vessel';points.frustumCulled=false;points.renderOrder=8;art.add(points);
  const backdropGeometry=new THREE.PlaneGeometry(2,2),backdropMaterial=new THREE.MeshBasicMaterial({...common,color:0x020812,opacity:.94});
@@ -111,19 +111,21 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
   vertexShader:`attribute float age;uniform float pointSize,visible;varying float opacity;void main(){opacity=(1.0-age)*visible;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);gl_PointSize=pointSize*(1.5-age*.8);}`,
   fragmentShader:`varying float opacity;void main(){float r=length(gl_PointCoord-.5)*2.0;if(r>1.0)discard;gl_FragColor=vec4(.35,.7,1.0,exp(-r*r*7.0)*opacity);}`});
  const trail=new THREE.Points(trailGeometry,trailMaterial);trail.frustumCulled=false;trail.renderOrder=10;art.add(trail);
- const target={x:.5,y:.5,pinch:0},current={...target};
+ const target={x:.5,y:.5,pinch:0},current={...target},rotation={yaw:-.24,pitch:0};let rotationAnchor=null,framedScale=0,framedCenter=0,framedHeight=0;
  const reduced=typeof matchMedia==='function'?matchMedia('(prefers-reduced-motion:reduce)'):null;
  let enabled=false,disposed=false,time=0,state='',generation=0,stream=null,video=null,worker=null,pending=null,shownModel=null,previousVisible=true,charged=false,releaseAt=-10,textureAvailable=false;
- let loopTimer=0,initTimer=0,frameTimer=0,rejectInit=null,lastVideoTime=-1,action='orbit',handPose='',handCandidate='',handSince=0,oneStartX=null,oneStarted=0,switchAfter=0,switchArmed=true,oneConsumed=false,switching=false,layoutAt=-10,notifiedPose='';
+ let loopTimer=0,initTimer=0,frameTimer=0,rejectInit=null,lastVideoTime=-1,action='orbit',handPose='',handCandidate='',handSince=0,oneStartX=null,oneStartY=0,oneStarted=0,switchAfter=0,switchArmed=true,oneConsumed=false,switching=false,layoutAt=-10,notifiedPose='';
  const status=next=>{if(state!==next||notifiedPose!==handPose){state=next;notifiedPose=handPose;onStatus({state:next,action,gesture:handPose});}return next;};
- function setPointer(x,y,pinch){
+ function setPointer(x,y,pinch,rotate=false){
   if(!Number.isFinite(x)||!Number.isFinite(y))return;
   target.x=Math.max(0,Math.min(1,x));target.y=Math.max(0,Math.min(1,y));
+  if(rotate&&rotationAnchor){rotation.yaw+=(target.x-rotationAnchor.x)*12;rotation.pitch=Math.max(-1.15,Math.min(1.15,rotation.pitch+(target.y-rotationAnchor.y)*4));}
+  rotationAnchor=rotate?{x:target.x,y:target.y}:null;
   if(Number.isFinite(pinch))target.pinch=Math.max(0,Math.min(1,pinch));
  }
  function cancelInputs(){
   target.pinch=current.pinch=0;charged=false;releaseAt=-10;uniforms.charge.value=0;lineUniforms.release.value=-1;
-  handPose=handCandidate='';oneStartX=null;switchArmed=!oneConsumed;
+  handPose=handCandidate='';oneStartX=null;rotationAnchor=null;switchArmed=!oneConsumed;
  }
  function setSwitching(value){switching=!!value;if(switching){oneConsumed=true;switchArmed=false;}}
  function nextLayout(){uniforms.previousSeed.value=uniforms.layoutSeed.value;uniforms.layoutSeed.value=(uniforms.layoutSeed.value+1.618033989)%1024;layoutAt=time;}
@@ -144,12 +146,18 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
   geometry.setDrawRange(0,isDesktop()?count:Math.min(count,6000));uniforms.pointSize.value=(isDesktop()?4.3:3.7)*Math.min(2,renderer.getPixelRatio());lineUniforms.release.value=reduced?.matches?-1:release;
   const rect=renderer.domElement.getBoundingClientRect(),viewHeight=2*Math.tan(camera.fov*Math.PI/360)*4,viewWidth=viewHeight*rect.width/Math.max(1,rect.height);
   const dock=document.getElementById('museumGestureDock'),guide=document.getElementById('museumGestureGuide');
-  const freeTop=guide&&!guide.hidden?Math.max(0,guide.getBoundingClientRect().bottom-rect.top+12):0,freeBottom=dock&&!dock.hidden?Math.min(rect.height,dock.getBoundingClientRect().top-rect.top-16):rect.height,freeHeight=Math.max(0,freeBottom-freeTop);
+  const uiHidden=document.body.classList.contains('museum-gesture-ui-hidden');
+  const freeTop=!uiHidden&&guide&&!guide.hidden?Math.max(0,guide.getBoundingClientRect().bottom-rect.top+12):0,freeBottom=!uiHidden&&dock&&!dock.hidden?Math.min(rect.height,dock.getBoundingClientRect().top-rect.top-16):rect.height,freeHeight=Math.max(0,freeBottom-freeTop);
   const fieldHeight=viewHeight*freeHeight/Math.max(1,rect.height),scale=Math.min(viewHeight*.24,viewWidth*.34,fieldHeight*.42);
-  uniforms.fieldCenter.value.set(0,viewHeight*.5-viewHeight*(freeTop+freeHeight*.5)/Math.max(1,rect.height));uniforms.fieldSize.value.set(viewWidth*.88,fieldHeight*.9);
+  const center=viewHeight*.5-viewHeight*(freeTop+freeHeight*.5)/Math.max(1,rect.height);
+  if(!uiHidden||!framedScale){framedScale=scale;framedCenter=center;framedHeight=fieldHeight;}
+  const fieldEase=dt?1-Math.exp(-6*dt):1;
+  uniforms.fieldCenter.value.y+=(center-uniforms.fieldCenter.value.y)*fieldEase;uniforms.fieldSize.value.x+=(viewWidth*.88-uniforms.fieldSize.value.x)*fieldEase;uniforms.fieldSize.value.y+=(fieldHeight*.9-uniforms.fieldSize.value.y)*fieldEase;
+  uniforms.fieldParallax.value.set((current.x-.5)*2,(.5-current.y)*2);
   camera.updateMatrixWorld();group.position.set(0,0,-4).applyMatrix4(camera.matrixWorld);group.quaternion.copy(camera.quaternion);backdrop.scale.set(viewWidth*.55,viewHeight*.55,1);
-  art.position.set((current.x-.5)*viewWidth*.08,uniforms.fieldCenter.value.y+(.5-current.y)*fieldHeight*.03,0);art.scale.setScalar(scale);
-  art.rotation.set((current.y-.5)*.8,-.24+(current.x-.5)*1.8+(reduced?.matches?0:time*.09),0);
+  art.position.set((current.x-.5)*viewWidth*.08,framedCenter+(.5-current.y)*framedHeight*.03,0);art.scale.setScalar(Math.min(scale,framedScale));
+  if(!rotationAnchor&&!reduced?.matches)rotation.yaw+=dt*.09;
+  art.rotation.x+=(rotation.pitch-art.rotation.x)*ease;art.rotation.y+=(rotation.yaw-art.rotation.y)*ease;
   const speed=Math.min(1,Math.hypot(current.x-oldX,current.y-oldY)*55);trailUniforms.visible.value+=(speed-trailUniforms.visible.value)*(1-Math.exp(-5*dt));
   trailPositions.copyWithin(3,0,trailPositions.length-3);trailPositions[0]=(current.x-.5)*2.4;trailPositions[1]=(.5-current.y)*2;trailPositions[2]=.5;trailGeometry.attributes.position.needsUpdate=true;trail.visible=!reduced?.matches;
  }
@@ -167,7 +175,7 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
   // Sampling must succeed before we release the old exhibit or its GPU buffers.
   if(shownModel)shownModel.visible=previousVisible;
   if(geometry.attributes.position?.array!==sample.positions){if(geometry.attributes.position)geometry.dispose();geometry.setAttribute('position',new THREE.BufferAttribute(sample.positions,3));geometry.setAttribute('color',new THREE.BufferAttribute(sample.colors,3));geometry.setAttribute('normal',new THREE.BufferAttribute(sample.normals,3));}
-  shownModel=model;previousVisible=model.visible;model.visible=false;textureAvailable=sample.textureAvailable;time=0;layoutAt=-10;if(stream||pending)oneConsumed=true;cancelInputs();target.x=current.x=.5;target.y=current.y=.5;
+  shownModel=model;previousVisible=model.visible;model.visible=false;textureAvailable=sample.textureAvailable;time=0;layoutAt=-10;if(stream||pending)oneConsumed=true;cancelInputs();target.x=current.x=.5;target.y=current.y=.5;rotation.yaw=-.24;rotation.pitch=0;art.rotation.set(0,-.24,0);
   trailPositions.fill(0);trailUniforms.visible.value=0;uniforms.scan.value=-1.15;uniforms.spread.value=uniforms.swirl.value=0;setAction('orbit');
  }
  function changeModel(){if(!enabled||disposed)return false;loadModel();update(0);return true;}
@@ -181,24 +189,24 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
   const hand=classifyHand(landmarks,width,height,handPose);
   if(!hand){oneConsumed=false;cancelInputs();status('no-hand');return;}
   const now=performance.now()/1000;
-  if(hand.gesture!==handCandidate){handCandidate=hand.gesture;handSince=now;}
-  if(handCandidate!==handPose&&now-handSince>.24){
+  if(hand.gesture!==handCandidate){handCandidate=hand.gesture;handSince=now;rotationAnchor=null;if(handCandidate==='one'){oneStartX=hand.x;oneStartY=hand.y;oneStarted=now;}}
+  if(handCandidate!==handPose&&now-handSince>.12){
    handPose=handCandidate;
    if(handPose==='fist'||handPose==='two')setAction('orbit');else if(handPose==='open')setAction('scatter');
    handPose=handCandidate=hand.gesture;
-   if(handPose==='one'){oneStartX=hand.x;oneStarted=now;}else{oneStartX=null;oneConsumed=false;switchArmed=true;}
+   if(handPose!=='one'){oneStartX=null;oneConsumed=false;switchArmed=true;}
   }
   if(handPose==='one'&&hand.gesture==='one'&&switchArmed&&!switching&&now>switchAfter){
-   if(now-oneStarted>1.2){oneStartX=hand.x;oneStarted=now;}
-   const movement=hand.x-oneStartX;
-   if(Math.abs(movement)>.22){
-    oneConsumed=true;switchArmed=false;switchAfter=now+1.2;
+   if(now-oneStarted>1.2){oneStartX=hand.x;oneStartY=hand.y;oneStarted=now;}
+   const movement=hand.x-oneStartX,vertical=Math.abs(hand.y-oneStartY);
+   if(Math.abs(movement)>.10&&Math.abs(movement)>vertical*1.4){
+    oneConsumed=true;switchArmed=false;switchAfter=now+.65;
     try{Promise.resolve(onSwitch(movement<0?1:-1)).catch(error=>console.warn('Gesture exhibit switch:',error));}catch(error){console.warn('Gesture exhibit switch:',error);}
    }
   }
   // A stable two-finger pose rotates; index-only movement is reserved for a single armed exhibit swipe.
-  if(hand.gesture==='two'&&handPose==='two')setPointer(hand.x,hand.y,0);
-  else target.pinch=hand.gesture==='pinch'&&handPose==='pinch'?hand.pinch:0;
+  if(hand.gesture==='two'&&handPose==='two')setPointer(hand.x,hand.y,0,true);
+  else setPointer(hand.x,hand.y,hand.gesture==='pinch'&&handPose==='pinch'?hand.pinch:0);
   status('tracking');
  }
  function startCamera(){
