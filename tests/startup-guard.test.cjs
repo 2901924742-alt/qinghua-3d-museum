@@ -10,6 +10,7 @@ function extract(start, end) {
  return html.slice(from, to);
 }
 const classic = extract('<script>', '</script>').slice('<script>'.length);
+const interiorGuard = extract('const interiorPreparations = new WeakMap();', 'function prepareExhibit(');
 const modelBlock = extract('let modelLoadStopped=false, modelLoadTimer;', '/* ================= 动画');
 const reveal = extract('async function revealMuseum(){', '</script>');
 assert(!/\bcompileAsync\s*\(/.test(reveal), 'Startup must not wait on asynchronous shader readiness');
@@ -17,7 +18,7 @@ assert(/renderer\.compile\(scene,camera\)/.test(reveal), 'Synchronous shader pre
 
 function environment(withModel = false) {
  let now = 0, nextId = 0, callbacks;
- const timers = new Map(), elements = new Map();
+ const timers = new Map(), elements = new Map(), events = new Map();
  const timer = (fn, delay = 0) => { const id = ++nextId; timers.set(id, {at:now + delay, fn}); return id; };
  const element = id => {
   if (!elements.has(id)) {
@@ -28,12 +29,13 @@ function environment(withModel = false) {
   }
   return elements.get(id);
  };
- const metrics = {prepared:0, added:0, revealed:0, disposed:[]};
- const context = {console:{warn(){}, error(){}}, setTimeout:timer, clearTimeout:id=>timers.delete(id),
+ const metrics = {prepared:0, added:0, revealed:0, disposed:[], warnings:0, disabled:0};
+ const context = {console:{warn(){metrics.warnings++;}, error(){}}, setTimeout:timer, clearTimeout:id=>timers.delete(id),
   requestAnimationFrame:fn=>timer(()=>fn(now),16), performance:{now:()=>now},
   matchMedia:()=>({matches:false}), HTMLScriptElement:class {static supports(){return true;}},
   document:{hidden:false, documentElement:element('html'), getElementById:element, addEventListener(){}},
-  addEventListener(){}, location:{reload(){}},
+  addEventListener(type,handler){events.set(type,handler);}, location:{reload(){}},
+  disableMuseumEnhancements(){metrics.disabled++;},
   loader:{load(url,onLoad,onProgress,onError){callbacks={onLoad,onProgress,onError};}},
   prepareExhibit(model){metrics.prepared++; return model;}, disposeExhibit(model){metrics.disposed.push(model);},
   THREE:{}, addInterior(){return {ready:Promise.resolve()};},
@@ -43,7 +45,7 @@ function environment(withModel = false) {
  context.window = context;
  vm.createContext(context);
  vm.runInContext(classic, context, {timeout:1000});
- if (withModel) { context.museumLoading.engineReady(); vm.runInContext(`'use strict';\n${modelBlock}`,context,{timeout:1000}); }
+ if (withModel) { context.museumLoading.engineReady(); vm.runInContext(`'use strict';\n${interiorGuard}\n${modelBlock}`,context,{timeout:1000}); }
  function advance(ms) {
   const target = now + ms;
   let ticks=0;
@@ -55,7 +57,7 @@ function environment(withModel = false) {
   }
   now=target;
  }
- return {context, metrics, advance, element, get callbacks(){return callbacks;}};
+ return {context, metrics, advance, element, events, get callbacks(){return callbacks;}};
 }
 
 (async()=>{
@@ -100,6 +102,38 @@ for (const reportedComplete of [false,true]) {
  assert.equal(e.metrics.prepared,1); assert.equal(e.metrics.added,1); assert.equal(e.metrics.revealed,1);
 }
 
+// A failure during the 180 ms fade must reveal the retry UI again.
+{
+ const e=environment(); e.context.museumLoading.engineReady(); e.advance(5000);
+ const finishing=e.context.museumLoading.finish(); await Promise.resolve();
+ assert.equal(e.element('loading').classList.contains('leaving'),true);
+ e.context.showMuseumLoadError('Injected fade failure','startupError');
+ assert.equal(e.element('loading').classList.contains('leaving'),false);
+ assert.equal(e.element('retryBtn').hidden,false); e.advance(180);
+ assert.equal(await finishing,false); assert.notEqual(e.element('loading').style.display,'none');
+}
+// Core static modules must produce an immediate startup error, not the optional-module fallback.
+for(const module of ['interior','interior-data','exhibit-cache']) {
+ const e=environment(); e.events.get('error')({filename:`http://museum.local/enhancements/${module}.js`,message:'Injected module error',target:null});
+ assert.equal(e.context.museumLoadErrorKey,'startupError',module); assert.equal(e.metrics.disabled,0);
+}
+{
+ const e=environment();e.events.get('error')({filename:'http://museum.local/enhancements/experience.js',message:'Optional failure',target:null});
+ assert.equal(e.context.museumLoadErrorKey,undefined);assert.equal(e.metrics.disabled,1);
+}
+// Reconstruction faults are optional; both synchronous throws and rejected readiness retain the model.
+for(const rejected of [false,true]) {
+ const e=environment(true);e.context.addInterior=()=>{if(rejected)return{ready:Promise.reject(Error('Injected interior rejection'))};throw Error('Injected interior throw');};
+ await e.callbacks.onLoad({scene:{name:'valid model'}});
+ assert.equal(e.context.museumLoadErrorKey,undefined);assert.equal(e.metrics.prepared,1);
+ assert.equal(e.metrics.added,1);assert.equal(e.metrics.revealed,1);assert.equal(e.metrics.disposed.length,0);assert.equal(e.metrics.warnings,1);
+}
+{
+ const e=environment(true);e.context.prepareExhibit=()=>{throw Error('Invalid exhibit dimensions');};
+ await e.callbacks.onLoad({scene:{name:'invalid dimensions'}});
+ assert.equal(e.context.museumLoadErrorKey,'modelSizeError');assert.equal(e.metrics.added,0);assert.equal(e.metrics.disposed.length,1);
+}
+
 async function checkReveal(compileThrows) {
  const calls={compile:0,render:0,start:0,raf:0}, failure=new Error('Injected compile failure');
  const renderer={compile(){calls.compile++; if(compileThrows) throw failure;},
@@ -117,5 +151,5 @@ async function checkReveal(compileThrows) {
  assert.equal(calls.compile,1);assert.equal(calls.raf,2,'Preparation status needs two animation frames before GPU work');
 }
  await checkReveal(false);await checkReveal(true);
- console.log('Startup guards pass: engine/model deadlines, progress reset, late disposal, first-error retention, synchronous reveal (8 cases)');
+ console.log('Startup guards pass: engine/model deadlines, progress reset, late disposal, first-error retention, fade-error visibility, core/optional classification, reconstruction isolation and synchronous reveal');
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -112,7 +112,11 @@ export function createInteriorGeometry(THREE, spec) {
 export function addInterior(THREE, model, key) {
     if (installed.has(model)) return installed.get(model);
     const spec = interiorData[key];
-    if (!spec) return {added: false, reason: 'No verified interior profile for this exhibit.'};
+    if (!spec) {
+        const reason = 'No verified interior profile for this exhibit.';
+        console.warn('Museum display interior unavailable:', key, reason);
+        return {added: false, reason, ready: Promise.resolve()};
+    }
     const signature = [], sources = [];
     model.traverse(object => {
         if (object.isMesh) {sources.push(object); signature.push([
@@ -121,7 +125,9 @@ export function addInterior(THREE, model, key) {
         ].join(':'));}
     });
     if (signature.sort().join(',') !== spec.signature) {
-        return {added: false, reason: 'Model geometry differs from the verified source profile.'};
+        const reason = 'Model geometry differs from the verified source profile.';
+        console.warn('Museum display interior unavailable:', key, reason);
+        return {added: false, reason, ready: Promise.resolve()};
     }
     const started = performance.now();
     const geometry = createInteriorGeometry(THREE, spec);

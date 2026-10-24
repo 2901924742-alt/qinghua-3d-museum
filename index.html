@@ -2,8 +2,8 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-<title>青花瓷 | 数字博物馆</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>天传数字博物馆 | 青花瓷</title>
 
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -189,28 +189,23 @@ background:rgba(255,255,255,.15);
 <path pathLength="1" style="--delay:1.2s;--duration:1.8s" d="M72 54 C46 27 70 12 82 31 M221 54 Q243 31 249 48"/>
 <path pathLength="1" style="--delay:1.6s;--duration:2.1s" d="M151 39 C135 14 160 8 164 30 M146 38 C171 30 177 50 157 53 M146 39 C143 60 120 66 125 46 M145 39 C121 34 123 10 138 25 M146 39 L150 26"/>
 <circle cx="147" cy="39" r="3"/></svg>
-<span id="loadingTitle">正在进入屈劲舟制作的数字展馆doge...</span>
+<span id="loadingTitle">正在进入天传数字博物馆…</span>
 <span class="loading-status" id="loadingStatus"></span>
 <button id="retryBtn" type="button" hidden>重新加载</button>
 </div>
 
 <div class="title">天传数字博物馆</div>
-<div class="sub">TJCM PORCELAIN DIGITAL MUSEUM</div>
+<div class="sub">BLUE-AND-WHITE PORCELAIN EXHIBITION</div>
 
 <div class="info" id="infoBox">
-<div class="info-header"><h2>元代青花瓷</h2><button id="hideBtn" type="button" aria-controls="infoBox" aria-expanded="true">隐藏介绍</button></div>
+<div class="info-header"><h2>青花花卉纹瓶（数字模型）</h2><button id="hideBtn" type="button" aria-controls="infoBox" aria-expanded="true">隐藏介绍</button></div>
 <p>
-制作人：屈劲舟（上滑隐藏文字） <br><br>
-
-元代青花瓷是中国陶瓷发展史上的重要高峰之一，代表了釉下彩绘工艺的成熟与巅峰。  
-其主要特点是使用进口钴料在白胎上进行蓝色绘制，再经高温一次烧成，形成永不褪色的釉下青花效果。<br><br>
-
-元代青花瓷器型雄浑大气，常见大罐、大瓶等造型，体现出元代多民族融合下的开放审美体系。  
-纹饰内容丰富，包括缠枝花卉、龙纹、云纹与人物故事图案，构图繁密而层次清晰。<br><br>
-
-其釉色白中泛青，蓝色深沉浓郁，被认为是中国瓷器史上最具辨识度与艺术价值的品类之一。  
-本数字展馆通过 Three.js 实时渲染技术，将这一传统工艺以现代方式重新呈现。
-</p >
+制作人：屈劲舟
+<span class="info-instructions">拖动旋转，双指或滚轮缩放；点击按钮或上滑可收起介绍。</span><br>
+本数字模型呈现白釉瓶身与青花花卉纹饰，可转动、拉近观察口沿、瓶身和底足。名称依据可见形态作描述，不据此认定原件年代。<br><br>
+青花瓷通常以钴蓝颜料在白色胎体上绘制纹样，纹饰位于釉层之下。元代景德镇的制胎与烧制技术发展，推动了青花工艺走向成熟。釉层为纹饰提供保护，日常表面摩擦不易直接磨损釉下彩。<br><br>
+本件模型的具体原件、年代、实物尺寸、收藏出处及最初模型制作来源尚未核实；展馆中的显示尺寸经过归一化。缺失内腔及其纹饰为展示性重建，厚度与内底形态未经实测。相关说明与通用工艺资料见“探索纹饰”。
+</p>
 </div>
 
 <div class="tip">PS:屈劲舟提示 松手后切换为自动旋转 |  星空秘境 · 青花奇观 </div>
@@ -241,11 +236,11 @@ document.addEventListener('visibilitychange', () => {
     if(document.hidden){clearTimeout(drawingTimer);if(drawingAt)drawingRemaining=Math.max(1,drawingRemaining-(performance.now()-drawingAt));drawingAt=0;loadingScreen.classList.add('paused');}
     else{loadingScreen.classList.remove('paused');scheduleDrawing();}
 });
-const engineTimer=setTimeout(()=>window.showMuseumLoadError('渲染组件长时间未能下载，请检查网络，或在 Safari 中打开后重试。','engineTimeout'),45000);
+const engineTimer=setTimeout(()=>window.showMuseumLoadError('渲染组件长时间未能下载，请检查网络后重试。若在微信内，请点击右上角，在浏览器中打开。','engineTimeout'),45000);
 window.museumLoading={desktopIntro,painted:loadingPainted,wait:()=>drawingFinished,
     engineReady(){clearTimeout(engineTimer);},
     status(key,message){this.statusKey=key;document.getElementById('loadingStatus').textContent=message;this.translateStatus?.();},
-    fail(){clearTimeout(drawingTimer);drawingRemaining=0;drawingDone();loadingScreen.classList.add('failed');},
+    fail(){clearTimeout(drawingTimer);drawingRemaining=0;drawingDone();loadingScreen.classList.remove('leaving');loadingScreen.classList.add('failed');},
     async finish(){await drawingFinished;if(loadingScreen.classList.contains('failed'))return false;loadingScreen.classList.add('leaving');await new Promise(resolve=>setTimeout(resolve,180));if(loadingScreen.classList.contains('failed'))return false;loadingScreen.style.display='none';return true;}
 };
 // 独立于模块运行，依赖加载失败时也能给出提示并重新加载。
@@ -263,15 +258,16 @@ window.showMuseumLoadError = function(message, key) {
 };
 document.getElementById('retryBtn').addEventListener('click', () => window.location.reload());
 window.addEventListener('error', (event) => {
-    if(event.filename?.includes('/enhancements/') && !/\/(interior|interior-data)\.js(?:[?#]|$)/.test(event.filename)){window.disableMuseumEnhancements?.(event.error);return;}
+    // Reconstruction and cache are static core dependencies; UI/effects may degrade independently.
+    if(event.filename?.includes('/enhancements/') && !/\/(interior|interior-data|exhibit-cache)\.js(?:[?#]|$)/.test(event.filename)){window.disableMuseumEnhancements?.(event.error);return;}
     if (event.target instanceof HTMLScriptElement && event.target.type === 'module') {
         window.showMuseumLoadError('渲染组件未能加载，请检查网络后重试。', 'engineError');
-    } else if (event.message && document.getElementById('loading').style.display !== 'none') {
+    } else if (event.message && loadingScreen.style.display !== 'none') {
         window.showMuseumLoadError('展馆暂时无法启动，请检查网络和浏览器的 WebGL 支持后重试。', 'startupError');
     }
 }, true);
 if(HTMLScriptElement.supports && !HTMLScriptElement.supports('importmap')){
-    window.showMuseumLoadError('当前浏览器不支持展馆所需的模块映射，请更新系统/浏览器，或使用新版 Safari 打开。','browserError');
+    window.showMuseumLoadError('当前浏览器不支持展馆所需的模块映射，请更新系统或浏览器。若在微信内，请点击右上角，在浏览器中打开。','browserError');
 }
 </script>
 
@@ -284,6 +280,9 @@ if(HTMLScriptElement.supports && !HTMLScriptElement.supports('importmap')){
 }
 </script>
 
+<link rel="modulepreload" href="./enhancements/interior.js">
+<link rel="modulepreload" href="./enhancements/interior-data.js">
+<link rel="modulepreload" href="./enhancements/exhibit-cache.js">
 <link rel="modulepreload" href="./enhancements/experience.js">
 <link rel="modulepreload" href="./enhancements/ui.js">
 <link rel="modulepreload" href="./enhancements/exhibits.js">
@@ -303,6 +302,7 @@ let exhibitModel = null;
 function disableExperience(error){
     const failed=museumExperience;museumExperience=null;window.museumEnhancements=null;
     try{failed?.dispose();}catch(cleanupError){console.warn('Museum enhancement cleanup:',cleanupError);}
+    try{controls.enabled=true;}catch{}
     console.warn('Museum enhancements unavailable:',error);
 }
 function safeExperience(run){if(!museumExperience)return;try{return run(museumExperience);}catch(error){disableExperience(error);}}
@@ -341,7 +341,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 document.body.appendChild(renderer.domElement);
-renderer.domElement.addEventListener('webglcontextlost',event=>{event.preventDefault();safeExperience(experience=>experience.cancelIntro());});
+renderer.domElement.addEventListener('webglcontextlost',event=>{event.preventDefault();safeExperience(experience=>experience.cancelIntro('contextlost'));});
 renderer.domElement.addEventListener('webglcontextrestored',()=>window.location.reload());
 
 /* ================= 控制器 ================= */
@@ -952,8 +952,18 @@ function updateBlackHoleView() {
 
 /* ================= 模型 ================= */
 const loader = new GLTFLoader();
+const interiorPreparations = new WeakMap();
+function safeInterior(model, key) {
+    if (interiorPreparations.has(model)) return interiorPreparations.get(model);
+    const unavailable = error => console.warn('Museum display interior unavailable:', key, error);
+    let ready;
+    try {ready = Promise.resolve(addInterior(THREE, model, key).ready).catch(unavailable);}
+    catch (error) {unavailable(error);ready = Promise.resolve();}
+    interiorPreparations.set(model, ready);
+    return ready;
+}
 function prepareExhibit(model, original = true, key = 'original') {
-    addInterior(THREE, model, key);
+    safeInterior(model, key);
     // 保留原始颜色、贴图和 IOR；修正瓷器的金属度及被关闭的釉面反射。
     model.traverse((object) => {
         if (!object.isMesh) return;
@@ -1015,7 +1025,7 @@ function queueNextExhibit(){
     nextExhibitTimer=setTimeout(()=>{
         const connection=navigator.connection;
         if(document.hidden || navigator.onLine===false || connection?.saveData || /(^|-)2g$|^3g$/.test(connection?.effectiveType||'') ||
-            document.getElementById('loading').style.display!=='none')return;
+            loadingScreen.style.display!=='none')return;
         if(document.body.matches('.museum-opening,.museum-switching,.museum-gesture') ||
             document.getElementById('museumGallery')?.getAttribute('aria-busy')==='true'){queueNextExhibit();return;}
         const key=document.getElementById('museumGallery')?.dataset.exhibit;
@@ -1033,20 +1043,20 @@ async function loadExhibit(url, signal) {
     try {
     const bytes = await exhibitCache.load(url,signal);
     checkExhibitAbort(signal);
-    const gltf = await loader.parseAsync(bytes, '').catch(error=>{exhibitCache.forget(url);throw error;});
+    const gltf = await loader.parseAsync(bytes, new URL('.', new URL(url, document.baseURI)).href).catch(error=>{exhibitCache.forget(url);throw error;});
     try {
         checkExhibitAbort(signal);
         const key = exhibitKeys[url];
-        await addInterior(THREE, gltf.scene, key).ready;
+        await safeInterior(gltf.scene, key);
         checkExhibitAbort(signal);
-        return prepareExhibit(gltf.scene, url === './qinghuaci.glb', key);
+        return prepareExhibit(gltf.scene, key === 'original', key);
     } catch(error) {disposeExhibit(gltf.scene);throw error;}
     } finally {queueNextExhibit();}
 }
 let modelLoadStopped=false, modelLoadTimer;
 function armModelTimeout(){
     clearTimeout(modelLoadTimer);
-    modelLoadTimer=setTimeout(()=>{modelLoadStopped=true;window.showMuseumLoadError('模型下载或解析长时间没有进展，请重新加载，或在 Safari 中打开后重试。','modelTimeout');},60000);
+    modelLoadTimer=setTimeout(()=>{modelLoadStopped=true;window.showMuseumLoadError('模型下载或解析长时间没有进展，请检查网络并重新加载。若在微信内，请点击右上角，在浏览器中打开。','modelTimeout');},60000);
 }
 armModelTimeout();
 loader.load("./qinghuaci.glb",async (gltf)=>{
@@ -1055,7 +1065,7 @@ loader.load("./qinghuaci.glb",async (gltf)=>{
     modelLoadStopped=true;
     let model;
     try {
-        await addInterior(THREE, gltf.scene, 'original').ready;
+        await safeInterior(gltf.scene, 'original');
         if(window.museumLoadErrorKey){disposeExhibit(gltf.scene);return;}
         model = prepareExhibit(gltf.scene);
     } catch(error) {
@@ -1105,7 +1115,7 @@ function monitorDesktopQuality(timestamp) {
     const gap = previousRafAt ? Math.min(timestamp - previousRafAt, 150) : 0;
     previousRafAt = timestamp;
     // 排除后台切换、加载和窗口调整，避免一次停顿就降低清晰度。
-    if (document.getElementById('loading').style.display !== 'none' || gap <= 0) {
+    if (loadingScreen.style.display !== 'none' || gap <= 0) {
         qualityWindowAt = timestamp;
         qualitySamples = qualityTotalMs = 0;
         return;
@@ -1146,7 +1156,7 @@ document.addEventListener('visibilitychange', () => {
 function animate(timestamp = 0){
     requestAnimationFrame(animate);
     if (document.hidden) return;
-    if(document.getElementById('loading').style.display!=='none'){animationClock.getDelta();return;}
+    if(loadingScreen.style.display!=='none'){animationClock.getDelta();return;}
     monitorDesktopQuality(timestamp);
     // 高刷新率电脑最高重绘 60 次/秒；手机沿用当前渲染节奏。
     const interval = 1000 / 60;
@@ -1252,7 +1262,7 @@ restoreBtn.addEventListener("click",()=>{
     hideBtn.focus({preventScroll:true});
 });
 // Optional enhancements cannot prevent the original museum from loading.
-const experienceLoaded=import('./enhancements/experience.js').then(({createExperience}) => {
+import('./enhancements/experience.js').then(({createExperience}) => {
     museumExperience = createExperience({THREE, scene, renderer, camera, controls,
         renderMuseum: () => renderMuseum(), isDesktop: isDesktopRenderer, hideInfo, restoreInfo,
         loadExhibit, disposeExhibit, onExhibitChange:model=>{exhibitModel=model;queueNextExhibit();}});
@@ -1260,8 +1270,6 @@ const experienceLoaded=import('./enhancements/experience.js').then(({createExper
     if (exhibitModel) safeExperience(experience=>experience.ready(exhibitModel));
 }).catch(disableExperience);
 async function revealMuseum(){
-    // Optional downloads have only the drawing window; the original museum must not wait for them.
-    await Promise.race([experienceLoaded,window.museumLoading.wait()]);
     // Keep expensive GPU preparation out of the SVG's continuous growth phase.
     await window.museumLoading.wait();
     if(window.museumLoadErrorKey)return;

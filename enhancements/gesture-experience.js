@@ -6,8 +6,12 @@ const text={
 Object.assign(text.zh,{hint:'触屏：拖动旋转，长按后松开星散。摄像头：单指左划下一件／右划上一件，双指转动，张掌散开，握拳聚合。',ready:'选择光效，或拖动与长按体验',tracking:'手势已连接 · 单指切换 / 双指旋转 / 张掌散开 / 握拳聚合',orbit:'器形旋转',vortex:'涡流环绕',scatter:'全域星散',previous:'上一件全息展品',next:'下一件全息展品',switching:'正在准备下一件，当前光效仍可操作…',switchError:'切换未完成，当前展品保留，请重试'});
 Object.assign(text.en,{hint:'Touch: drag to rotate; hold and release to scatter. Camera: one finger swipe left/right for next/previous, two fingers rotate, open palm scatters, fist gathers.',ready:'Choose an effect, drag or hold to explore',tracking:'Tracking · One finger switches / two rotate / open scatters / fist gathers',orbit:'Vessel',vortex:'Vortex',scatter:'Starfield',previous:'Previous hologram',next:'Next hologram',switching:'Preparing the next exhibit; you can still interact…',switchError:'Switch failed. The current exhibit is safe; please retry.'});
 
+text.zh.insecure='手机摄像头需要可信 HTTPS；电脑请使用 localhost 地址打开。触控仍可使用。';
+text.en.insecure='Camera access needs trusted HTTPS on a phone. On this computer, open the localhost address. Touch still works.';
+
 export function createGestureExperience({THREE,scene,camera,renderer,controls,isDesktop,getModel,getLanguage,cancelIntro,pauseEffects,getEffectsPaused,switchExhibit,cancelSwitch}){
- let mode=null,effect=null,pending=null,generation=0,disposed=false,state='ready',index=0,switchState='idle',holdTimer=0,recognized='',uiHidden=false;
+ let mode=null,effect=null,pending=null,generation=0,disposed=false,state='ready',index=0,switchState='idle',holdTimer=0,recognized='',uiHidden=false,blockedUntil=0,diagnosticAt=0,diagnosticURL=null;
+ const diagnosticsEnabled=new URLSearchParams(location.search).has('diagnostics');
  const lifetime=new AbortController(),pointers=new Map();
  const dock=document.createElement('section');dock.id='museumGestureDock';dock.hidden=true;dock.setAttribute('aria-labelledby','gestureTitle');
  dock.innerHTML='<header><h2 id="gestureTitle"></h2><div class="gesture-window-controls"><button type="button" id="gestureHideUI"></button><button type="button" id="gestureExit"></button></div></header><div class="gesture-controls"><nav class="gesture-exhibits"><button type="button" id="gesturePrevious">‹</button><div><span id="gestureCounter"></span><strong id="gestureExhibitName"></strong></div><button type="button" id="gestureNext">›</button></nav><div class="gesture-actions"><button type="button" data-action="orbit"></button><button type="button" data-action="vortex"></button><button type="button" data-action="scatter"></button></div></div><p id="gestureSwitchStatus" role="status" aria-live="polite" hidden></p><p id="gestureHint"></p><div class="gesture-camera"><button type="button" id="gestureCamera"></button><span id="gestureStatus" role="status" aria-live="polite"></span></div><p class="note" id="gesturePrivacy"></p>';
@@ -16,6 +20,11 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
  guide.innerHTML='<strong id="gestureGuideTitle"></strong><div class="gesture-guide-steps"></div><p id="gestureTouchHint"></p>';
  document.body.append(guide);$('gestureHint').remove();
  const showUI=document.createElement('button');showUI.id='gestureShowUI';showUI.type='button';showUI.hidden=true;showUI.setAttribute('aria-controls','museumGestureDock museumGestureGuide');document.body.append(showUI);
+ if(diagnosticsEnabled){
+  const panel=document.createElement('details');panel.className='gesture-diagnostics';
+  panel.innerHTML='<summary id="gestureDiagnosticTitle"></summary><p id="gestureDiagnosticNote" class="note"></p><pre id="gestureDiagnosticStats"></pre><div class="gesture-diagnostic-actions"><button type="button" id="gestureDiagnosticReset"></button><button type="button" id="gestureDiagnosticExport"></button></div>';
+  dock.append(panel);
+ }
  function $(id){return dock.querySelector('#'+id)||guide.querySelector('#'+id);}
  function status(value){state=value;translate();}
  function translate(){
@@ -23,6 +32,12 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
   const zh=getLanguage()==='zh';
   $('gestureTitle').textContent=t.title;$('gestureExit').textContent=t.exit;$('gesturePrivacy').textContent=t.privacy;
   $('gestureHideUI').textContent=zh?'隐藏界面':'Hide interface';showUI.textContent=zh?'显示界面':'Show interface';
+  if(diagnosticsEnabled){
+   $('gestureDiagnosticTitle').textContent=zh?'本机诊断（不上传）':'Local diagnostics (not uploaded)';
+   $('gestureDiagnosticNote').textContent=zh?'检测到手的比例不等于准确率。正确、漏触发和误触发请记录到测试表；导出不含画面或关键点。':'Hand detection ratio is not accuracy. Log correct, missed and false actions separately. Exports contain no images or landmarks.';
+   $('gestureDiagnosticReset').textContent=zh?'重置统计':'Reset statistics';$('gestureDiagnosticExport').textContent=zh?'导出测试数据':'Export diagnostics';
+   updateDiagnostics();
+  }
   $('gestureGuideTitle').textContent=zh?'摄像头手势 · 在下方手动开启':'Camera gestures · Enable below';
   const instructions=zh?[['食指左右划动','左下一件 · 右上一件；收指后可再切'],['双指转动','横移转整圈 · 上下看俯仰；收指再移可接着转'],['张开手掌','向前后左右扩散成粒子云'],['握紧拳头','聚合回当前器形']]:[['One finger','Swipe left: next / right: previous. Lower finger to repeat.'],['Two fingers','Move sideways to spin, vertically to tilt. Lower and reposition to continue.'],['Open palm','Expand into a cloud with depth'],['Fist','Gather particles into the vessel']];
   const steps=guide.querySelector('.gesture-guide-steps');
@@ -31,6 +46,7 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
   $('gestureCamera').textContent=effect?.cameraActive?t.stop:t.camera;$('gestureCamera').disabled=state==='loading'||!effect;
   $('gestureStatus').textContent=t[{camera:'cameraOn','no-hand':'noHand',ended:'paused'}[state]||state]||t.ready;
   if(state==='tracking'&&recognized){const labels=zh?{one:'单指 · 左右划动切换',two:'双指 · 横移旋转，上下俯仰',open:'张掌 · 立体星散',fist:'握拳 · 聚合成器',pinch:'捏合 · 蓄能'}:{one:'One finger · Swipe left / right',two:'Two fingers · Spin and tilt',open:'Open palm · Spatial cloud',fist:'Fist · Gather',pinch:'Pinch · Charge'};if(labels[recognized])$('gestureStatus').textContent=labels[recognized];}
+  if(blockedUntil>performance.now())$('gestureStatus').textContent=zh?'正在切换展品，完成后收指再划动':'Switch in progress; lower your finger and swipe again when ready';
   const busy=switchState==='loading'||switchState==='moving';
   $('gestureCounter').textContent=`${String(index+1).padStart(2,'0')} / ${String(exhibits.length).padStart(2,'0')}`;
   $('gestureExhibitName').textContent=exhibits[index][getLanguage()]?.exhibit||exhibits[index].zh.exhibit;
@@ -40,6 +56,39 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
   for(const button of dock.querySelectorAll('[data-action]')){button.textContent=t[button.dataset.action];button.setAttribute('aria-pressed',String((effect?.action||'orbit')===button.dataset.action));button.disabled=!effect;}
  }
  function cancelInputs(){clearTimeout(holdTimer);holdTimer=0;pointers.clear();effect?.cancelInputs();}
+ function updateDiagnostics(force=false){
+  if(!diagnosticsEnabled||(!force&&!dock.querySelector('.gesture-diagnostics').open))return;
+  const now=performance.now();if(!force&&now-diagnosticAt<1000)return;diagnosticAt=now;
+  const d=effect?.diagnostics,zh=getLanguage()==='zh';
+  if(!d){$('gestureDiagnosticStats').textContent=zh?'进入体验后可查看统计。':'Statistics appear when the experience is ready.';return;}
+  const n=value=>Number.isFinite(value)?value.toFixed(1):'—';
+  $('gestureDiagnosticStats').textContent=(zh?[
+   `结果频率：${n(d.resultHz)} 次/秒 · 样本 ${d.frames}`,
+   `检测到手：${n(d.detectedRatio*100)}% · 漏检 ${d.misses}`,
+   `推理：平均 ${n(d.inferenceMeanMs)} / 最大 ${n(d.inferenceMaxMs)} ms`,
+   `帧往返：平均 ${n(d.roundTripMeanMs)} ms`,
+   `送检间隔：平均 ${n(d.sampleIntervalMeanMs)} ms`,
+   `姿势变化 ${d.poseFlips} · 切换 ${d.switches} · 忙碌拦截 ${d.blockedSwitches}`,
+   `短暂恢复 ${d.graceRecoveries} · 不连续恢复 ${d.discontinuities}`,
+   `实际采集 ${d.actualVideoWidth}×${d.actualVideoHeight} · 送检 ${d.inputWidth}×${d.inputHeight}`
+  ]:[
+   `Results: ${n(d.resultHz)} Hz · ${d.frames} samples`,
+   `Hand detected: ${n(d.detectedRatio*100)}% · ${d.misses} misses`,
+   `Inference: mean ${n(d.inferenceMeanMs)} / max ${n(d.inferenceMaxMs)} ms`,
+   `Frame round trip: mean ${n(d.roundTripMeanMs)} ms`,
+   `Input start interval: mean ${n(d.sampleIntervalMeanMs)} ms`,
+   `Pose changes ${d.poseFlips} · switches ${d.switches} · busy ${d.blockedSwitches}`,
+   `Grace recoveries ${d.graceRecoveries} · discontinuities ${d.discontinuities}`,
+   `Capture ${d.actualVideoWidth}×${d.actualVideoHeight} · input ${d.inputWidth}×${d.inputHeight}`
+  ]).join('\n');
+ }
+ function exportDiagnostics(){
+  if(!effect)return;
+  const data={schema:1,testVersion:'offline-20261024-r1',exportedAt:new Date().toISOString(),exhibit:exhibits[index].id,userAgent:navigator.userAgent,secureContext:window.isSecureContext,viewport:{width:innerWidth,height:innerHeight},diagnostics:effect.diagnostics};
+  if(diagnosticURL)URL.revokeObjectURL(diagnosticURL);
+  diagnosticURL=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
+  const link=document.createElement('a');link.href=diagnosticURL;link.download='museum-gesture-diagnostics-'+Date.now()+'.json';document.body.append(link);link.click();link.remove();
+ }
  function setUIHidden(hidden,focus=true){
   uiHidden=hidden;document.body.classList.toggle('museum-gesture-ui-hidden',hidden);showUI.hidden=!mode||!hidden;
   if(focus&&mode&&hidden)showUI.focus({preventScroll:true});
@@ -48,7 +97,8 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
  }
  function close(){
   generation++;if(!mode)return;
-  const previous=mode;mode=null;cancelSwitch();cancelInputs();effect?.setEnabled(false);
+  const previous=mode;mode=null;blockedUntil=0;cancelSwitch();cancelInputs();effect?.setEnabled(false);
+  if(diagnosticURL){URL.revokeObjectURL(diagnosticURL);diagnosticURL=null;}
   dock.querySelector('video')?.remove();dock.hidden=guide.hidden=true;setUIHidden(false,false);document.body.classList.remove('museum-gesture');
   controls.enabled=previous.enabled;controls.autoRotate=previous.auto;pauseEffects(previous.paused);
   const canFocus=node=>node?.isConnected&&node!==document.body&&node.getClientRects?.().length!==0;
@@ -56,7 +106,7 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
   focus?.focus({preventScroll:true});state='ready';
  }
  async function open(){
-  if(disposed||mode)return;cancelIntro();
+  if(disposed||mode)return;cancelIntro('gesture');
   mode={enabled:controls.enabled,auto:controls.autoRotate,paused:getEffectsPaused(),focus:document.activeElement};
   controls.enabled=false;controls.autoRotate=false;pauseEffects(true);document.body.classList.add('museum-gesture');dock.hidden=guide.hidden=false;state='loading';translate();$('gestureExit').focus({preventScroll:true});
   // Clear the orbit's residual inertia without moving the saved museum viewpoint.
@@ -66,13 +116,14 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
   try{
    pending ||= import('./gesture-particles.js').catch(error=>{pending=null;throw error;});
    const {createGestureParticles}=await pending;if(!mode||token!==generation||disposed)return;
-   effect ||= createGestureParticles({THREE,scene,camera,renderer,isDesktop,getModel,onStatus:result=>{if(mode){recognized=result.gesture||'';status(result.state);}},onSwitch:direction=>{if(mode&&(switchState==='idle'||switchState==='error'))switchExhibit(direction);}});
+   effect ||= createGestureParticles({THREE,scene,camera,renderer,isDesktop,getModel,onStatus:result=>{if(mode){recognized=result.gesture||'';status(result.state);}},onSwitch:direction=>{if(mode&&(switchState==='idle'||switchState==='error'))switchExhibit(direction);},onSwitchBlocked:()=>{if(mode){blockedUntil=performance.now()+750;translate();}}});
    effect.setEnabled(true);status(effect.textureAvailable?'ready':'shapeOnly');
   }catch(error){console.warn('Gesture experience:',error);if(mode&&token===generation)status('failed');}
  }
  async function toggleCamera(){
   if(!effect||!mode)return;
   if(effect.cameraActive){effect.stopCamera();dock.querySelector('video')?.remove();status('ready');return;}
+  if(window.isSecureContext===false){status('insecure');return;}
   const token=generation;status('loading');
   try{await effect.startCamera();if(!mode||token!==generation)return;
    if(effect.cameraActive&&effect.video){effect.video.className='gesture-video';effect.video.removeAttribute('style');effect.video.removeAttribute('aria-hidden');effect.video.setAttribute('aria-label',getLanguage()==='zh'?'本机摄像头预览':'Local camera preview');dock.append(effect.video);}
@@ -82,10 +133,11 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
  const listen=(target,type,handler,options={})=>target.addEventListener(type,handler,{...options,signal:lifetime.signal});
  listen($('gestureExit'),'click',close);listen($('gestureCamera'),'click',toggleCamera);
  listen($('gestureHideUI'),'click',()=>setUIHidden(true));listen(showUI,'click',()=>setUIHidden(false));
+ if(diagnosticsEnabled){listen($('gestureDiagnosticReset'),'click',()=>{effect?.resetDiagnostics();updateDiagnostics(true);});listen($('gestureDiagnosticExport'),'click',exportDiagnostics);listen(dock.querySelector('.gesture-diagnostics'),'toggle',()=>updateDiagnostics(true));}
  for(const [id,direction] of [['gesturePrevious',-1],['gestureNext',1]])listen($(id),'click',()=>{if(mode&&effect){cancelInputs();switchExhibit(direction);}});
  for(const button of dock.querySelectorAll('[data-action]'))listen(button,'click',()=>{if(mode){cancelInputs();effect?.setAction(button.dataset.action);translate();}});
  listen(document,'keydown',event=>{if(!mode)return;if(event.key==='Escape'){event.preventDefault();close();}
-  if(event.key==='Tab'){const buttons=uiHidden?[showUI]:[...dock.querySelectorAll('button:not(:disabled)')];if(event.shiftKey&&document.activeElement===buttons[0]){event.preventDefault();buttons[buttons.length-1].focus();}else if(!event.shiftKey&&document.activeElement===buttons[buttons.length-1]){event.preventDefault();buttons[0].focus();}}
+  if(event.key==='Tab'){const buttons=uiHidden?[showUI]:[...dock.querySelectorAll('button:not(:disabled),summary')].filter(node=>node.getClientRects().length);if(event.shiftKey&&document.activeElement===buttons[0]){event.preventDefault();buttons[buttons.length-1].focus();}else if(!event.shiftKey&&document.activeElement===buttons[buttons.length-1]){event.preventDefault();buttons[0].focus();}}
  });
  const canvas=renderer.domElement;
  function move(event,pinch){if(!mode||!effect||effect.cameraActive)return;const rect=canvas.getBoundingClientRect();effect.setPointer((event.clientX-rect.left)/rect.width,(event.clientY-rect.top)/rect.height,pinch,pointers.size===1&&pointers.has(event.pointerId));}
@@ -98,5 +150,5 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
  listen(window,'blur',cancelInputs);
  listen(document,'visibilitychange',()=>{if(document.hidden&&mode){cancelInputs();effect?.stopCamera();dock.querySelector('video')?.remove();status('paused');}});
  listen(window,'pagehide',close);listen(canvas,'webglcontextlost',close);
- return {open,close,translate,galleryState(current,target,kind){index=current;switchState=kind;effect?.setSwitching(kind==='loading'||kind==='moving');translate();},changeModel(){if(mode&&effect){cancelInputs();effect.changeModel();translate();}},get active(){return !!mode;},update(delta){if(mode){controls.enabled=false;controls.autoRotate=false;if(!document.hidden)try{effect?.update(delta);}catch(error){console.warn('Gesture frame:',error);close();}}},dispose(){if(disposed)return;close();disposed=true;lifetime.abort();effect?.dispose();effect=null;dock.remove();guide.remove();showUI.remove();}};
+ return {open,close,translate,galleryState(current,target,kind){index=current;switchState=kind;effect?.setSwitching(kind==='loading'||kind==='moving');translate();},changeModel(){if(mode&&effect){cancelInputs();effect.changeModel();translate();}},get active(){return !!mode;},update(delta){if(mode){controls.enabled=false;controls.autoRotate=false;if(!document.hidden)try{effect?.update(delta);updateDiagnostics();if(blockedUntil&&performance.now()>=blockedUntil){blockedUntil=0;translate();}}catch(error){console.warn('Gesture frame:',error);close();}}},dispose(){if(disposed)return;close();disposed=true;lifetime.abort();effect?.dispose();effect=null;dock.remove();guide.remove();showUI.remove();}};
 }

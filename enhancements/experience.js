@@ -14,8 +14,9 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  const dummy=new THREE.Object3D(),tmp=new THREE.Vector3(),tmpNormal=new THREE.Vector3();
  let gesture;
  const ui=createUI({controls,hideInfo,restoreInfo,cancelIntro,capture,unwrap,switchExhibit:direction=>gallery?.step(direction),openGesture:()=>gesture.open(),gestureActive:()=>gesture?.active});
- gesture=createGestureExperience({THREE,scene,camera,renderer,controls,isDesktop,getModel:()=>model,getLanguage:()=>ui.language,cancelIntro,pauseEffects:value=>{pausedEffects=value;},getEffectsPaused:()=>pausedEffects,switchExhibit:direction=>gallery?.step(direction,{animate:false}),cancelSwitch:()=>gallery?.cancel()});
- cleanup.push(()=>ui.dispose(),()=>{if(intro){camera.position.copy(initialPosition);controls.target.copy(initialTarget);controls.update(0);}cancelIntro();});
+ cleanup.push(()=>ui.dispose());
+ gesture=createGestureExperience({THREE,scene,camera,renderer,controls,isDesktop,getModel:()=>model,getLanguage:()=>ui.language,cancelIntro,pauseEffects:value=>{pausedEffects=value;},getEffectsPaused:()=>pausedEffects,switchExhibit:direction=>gallery?.step(direction,{animate:false}),cancelSwitch:()=>gallery?.cancel('reset')});
+ cleanup.push(()=>{if(intro){camera.position.copy(initialPosition);controls.target.copy(initialTarget);controls.update(0);}cancelIntro('dispose');});
  cleanup.push(()=>gesture.dispose());
  // Let OrbitControls receive every pointer. Activate a hotspot only after a stationary single-pointer tap.
  const tapPointers=new Map();let multiplePointers=false,pendingHotspot=null;
@@ -34,18 +35,18 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  const initialPosition=controls.position0.clone(),initialTarget=controls.target0.clone();
  gallery=createGallery({THREE,renderer,scene,camera,controls,loadExhibit,disposeExhibit,getModel:()=>model,commit:ready,ui:{galleryState(index,target,state){ui.galleryState(index,target,state);gesture.galleryState(index,target,state);}},cancelIntro,hideInfo,restoreInfo});
  cleanup.push(()=>gallery.dispose());
- function cancelIntro(){
-  introCancelled=true;finishIntro();gallery?.cancel();
+ function cancelIntro(reason='ui'){
+  introCancelled=true;finishIntro();if(reason!=='gallery-step')gallery?.cancel(reason);
  }
  function finishIntro(){if(!intro)return;controls.enableDamping=intro.damping;controls.autoRotate=intro.auto;if(!intro.infoHidden)restoreInfo();intro=null;document.body.classList.remove('museum-opening');}
- const interruptView=()=>{if(!gesture.active)cancelIntro();};
+ const interruptView=()=>{if(!gesture.active)cancelIntro('interaction');};
  listen(renderer.domElement,'pointerdown',interruptView,{capture:true});listen(renderer.domElement,'wheel',interruptView,{capture:true,passive:true});
- listen(document.getElementById('resetViewBtn'),'click',cancelIntro,{capture:true});
- listen(document,'visibilitychange',()=>{if(document.hidden)cancelIntro();});
+ listen(document.getElementById('resetViewBtn'),'click',()=>cancelIntro('reset'),{capture:true});
+ listen(document,'visibilitychange',()=>{if(document.hidden)cancelIntro('background');});
  listen(document,'keydown',e=>{if(e.key==='Escape')cancelIntro();});
- controls.addEventListener('start',cancelIntro);
+ const onControlsStart=()=>cancelIntro('interaction');controls.addEventListener('start',onControlsStart);
  const onControlsEnd=()=>{if(ui.panel)controls.autoRotate=false;};controls.addEventListener('end',onControlsEnd);
- cleanup.push(()=>{controls.removeEventListener('start',cancelIntro);controls.removeEventListener('end',onControlsEnd);});
+ cleanup.push(()=>{controls.removeEventListener('start',onControlsStart);controls.removeEventListener('end',onControlsEnd);});
  function prepareIntro(){
   if(introCancelled||(reduced.matches&&!window.museumLoading.desktopIntro))return;
   intro={elapsed:0,running:false,damping:controls.enableDamping,auto:controls.autoRotate,infoHidden:document.getElementById('infoBox').classList.contains('hide'),start:initialPosition.clone().sub(initialTarget).multiplyScalar(6.5).add(initialTarget)};

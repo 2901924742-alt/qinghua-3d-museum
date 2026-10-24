@@ -26,12 +26,24 @@ export function createGallery({THREE,renderer,scene,camera,controls,loadExhibit,
  function finish(){
   if(!motion)return;
   const old=motion;motion=null;
+  if(old.recover)return;
   controls.enableDamping=old.damping;controls.autoRotate=old.auto;
   document.body.classList.remove('museum-switching');
   if(!old.infoHidden)restoreInfo();
-  if(!old.committed)disposeExhibit(old.next);
+  if(old.next&&!old.committed)disposeExhibit(old.next);
  }
- function cancel(){serial++;pending?.abort();pending=null;finish();requested=current;state();}
+ function cancel(reason='ui'){
+  const active=!!motion||!!pending||requested!==current;
+  const home=reason==='gesture'&&motion;
+  serial++;pending?.abort();pending=null;
+  if(motion&&(reason==='ui'||reason==='background')){
+   const recovery={recover:true,start:camera.position.clone(),targetStart:controls.target.clone(),end:motion.end,targetEnd:motion.targetEnd,at:document.hidden?null:performance.now()};
+   // Restore controls before a dialog or another mode saves their settings.
+   finish();motion=recovery;
+  }else finish();
+  if(home){camera.position.copy(home.end);controls.target.copy(home.targetEnd);}
+  requested=current;if(active)state();
+ }
  function present(next,index){
   const previous=getModel();scene.add(next);
   try{commit(next,index);}catch(error){
@@ -42,7 +54,7 @@ export function createGallery({THREE,renderer,scene,camera,controls,loadExhibit,
  }
  async function step(direction,{animate=true}={}){
   const target=(requested+direction+exhibits.length)%exhibits.length;
-  cancelIntro();requested=target;
+  cancel('step');cancelIntro('gallery-step');requested=target;
   if(target===current){state();return;}
   const token=++serial,controller=new AbortController();pending=controller;state('loading');
   const previous=preparing;let release;preparing=new Promise(resolve=>{release=resolve;});
@@ -73,7 +85,16 @@ export function createGallery({THREE,renderer,scene,camera,controls,loadExhibit,
  }
  function update(){
   if(!motion)return;
-  const m=motion;let elapsed=m.instant?duration:(performance.now()-m.at)/1000;
+  const m=motion;
+  if(m.recover){
+   if(document.hidden){m.at=null;return;}
+   if(m.at===null)m.at=performance.now();
+   const p=Math.min(1,(performance.now()-m.at)/300),ease=p*p*(3-2*p);
+   camera.position.lerpVectors(m.start,m.end,ease);controls.target.lerpVectors(m.targetStart,m.targetEnd,ease);
+   if(p>=1)finish();
+   return;
+  }
+  let elapsed=m.instant?duration:(performance.now()-m.at)/1000;
   if(elapsed>=pullOut+hold/2&&!m.committed){
    // A delayed frame must still show the distant swap before the approach begins.
    if(!m.instant){elapsed=pullOut+hold/2;m.at=performance.now()-elapsed*1000;camera.position.copy(m.far);controls.target.copy(m.targetEnd);}
@@ -88,5 +109,5 @@ export function createGallery({THREE,renderer,scene,camera,controls,loadExhibit,
   if(elapsed>=duration){finish();requested=current;state();}
  }
  state();
- return {step,cancel,update,dispose:cancel,get index(){return current;},get active(){return !!motion||!!pending;}};
+ return {step,cancel,update,dispose:()=>cancel('dispose'),get index(){return current;},get active(){return !!motion||!!pending;}};
 }

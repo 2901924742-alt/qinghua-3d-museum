@@ -14,6 +14,17 @@ const fallback = 'Unavailable; curved glaze fallback retained';
     const THREE = await import(pathToFileURL(path.resolve(__dirname, '../vendor/three.module.js')).href);
     const {interiorData} = await import(pathToFileURL(path.resolve(__dirname, '../enhancements/interior-data.js')).href);
     const failures = [], checks = [];
+    // Unknown/stale model profiles remain awaitable and explain why no reconstruction was added.
+    {
+        const warnings = [], context = {THREE, interiorData, console: {warn: (...args) => warnings.push(args)}};
+        vm.createContext(context);vm.runInContext(source + ';globalThis.addInterior=addInterior;', context, {filename: file});
+        for (const key of ['unverified', 'original']) {
+            const result = context.addInterior(THREE, new THREE.Group(), key);
+            assert.equal(result.added, false);assert.equal(typeof result.reason, 'string');
+            assert.equal(typeof result.ready.then, 'function');await result.ready;
+        }
+        assert.equal(warnings.length, 2);checks.push('unknown-and-stale-profile-ready');
+    }
     for (const [key, spec] of Object.entries(interiorData)) {
         const original = new THREE.Group();
         // Only the documented geometry signature matters to these loader lifecycle cases.

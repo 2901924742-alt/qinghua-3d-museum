@@ -73,7 +73,7 @@ export function classifyHand(landmarks,width,height,previous=''){
 }
 
 // Shares the museum's renderer and loop; inference starts only after the camera button is pressed.
-export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,getModel,onStatus=()=>{},onSwitch=()=>{}}){
+export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,getModel,onStatus=()=>{},onSwitch=()=>{},onSwitchBlocked=()=>{}}){
  const count=isDesktop()?12000:6000,group=new THREE.Group(),art=new THREE.Group(),geometry=new THREE.BufferGeometry(),cache=new WeakMap();
  group.name='museum-gesture-hologram';group.visible=false;group.add(art);scene.add(group);
  const seeds=new Float32Array(count);for(let i=0;i<count;i++)seeds[i]=(i*.61803398875)%1;
@@ -115,6 +115,16 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
  const reduced=typeof matchMedia==='function'?matchMedia('(prefers-reduced-motion:reduce)'):null;
  let enabled=false,disposed=false,time=0,state='',generation=0,stream=null,video=null,worker=null,pending=null,shownModel=null,previousVisible=true,charged=false,releaseAt=-10,textureAvailable=false;
  let loopTimer=0,initTimer=0,frameTimer=0,rejectInit=null,lastVideoTime=-1,action='orbit',handPose='',handCandidate='',handSince=0,oneStartX=null,oneStartY=0,oneStarted=0,switchAfter=0,switchArmed=true,oneConsumed=false,switching=false,layoutAt=-10,notifiedPose='';
+ let missingSince=null,lastHand=null,blockedAfter=0,frameStartedAt=null,inFlight=false,lastCaptureAt=null,metrics;
+ function resetDiagnostics(){metrics={startedAt:performance.now(),endedAt:null,frames:0,hands:0,misses:0,graceRecoveries:0,discontinuities:0,poseFlips:0,switches:0,blockedSwitches:0,actualVideoWidth:0,actualVideoHeight:0,inputWidth:0,inputHeight:0,firstResultAt:null,lastResultAt:null};lastCaptureAt=null;}
+ function measure(name,value){if(!Number.isFinite(value)||value<0)return;metrics[name+'Count']=(metrics[name+'Count']||0)+1;metrics[name+'Total']=(metrics[name+'Total']||0)+value;metrics[name+'LastMs']=value;metrics[name+'MaxMs']=Math.max(metrics[name+'MaxMs']||0,value);metrics[name+'MinMs']=Math.min(metrics[name+'MinMs']??value,value);}
+ function diagnostics(){
+  const result={startedAt:metrics.startedAt,elapsedMs:Math.max(0,(metrics.endedAt??performance.now())-metrics.startedAt),state,cameraActive:!!stream};
+  for(const key of ['frames','hands','misses','graceRecoveries','discontinuities','poseFlips','switches','blockedSwitches','actualVideoWidth','actualVideoHeight','inputWidth','inputHeight'])result[key]=metrics[key];
+  for(const name of ['inference','roundTrip','capture','sampleInterval'])for(const suffix of ['LastMs','MaxMs','MinMs','MeanMs'])result[name+suffix]=suffix==='MeanMs'?(metrics[name+'Total']||0)/(metrics[name+'Count']||1):metrics[name+suffix]||0;
+  result.detectedRatio=metrics.frames?metrics.hands/metrics.frames:0;result.resultHz=metrics.frames>1&&metrics.lastResultAt>metrics.firstResultAt?(metrics.frames-1)*1000/(metrics.lastResultAt-metrics.firstResultAt):0;return result;
+ }
+ resetDiagnostics();
  const status=next=>{if(state!==next||notifiedPose!==handPose){state=next;notifiedPose=handPose;onStatus({state:next,action,gesture:handPose});}return next;};
  function setPointer(x,y,pinch,rotate=false){
   if(!Number.isFinite(x)||!Number.isFinite(y))return;
@@ -123,9 +133,11 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
   rotationAnchor=rotate?{x:target.x,y:target.y}:null;
   if(Number.isFinite(pinch))target.pinch=Math.max(0,Math.min(1,pinch));
  }
- function cancelInputs(){
+ function cancelCharge(){
   target.pinch=current.pinch=0;charged=false;releaseAt=-10;uniforms.charge.value=0;lineUniforms.release.value=-1;
-  handPose=handCandidate='';oneStartX=null;rotationAnchor=null;switchArmed=!oneConsumed;
+ }
+ function cancelInputs(){
+  cancelCharge();handPose=handCandidate='';oneStartX=null;rotationAnchor=null;switchArmed=!oneConsumed;missingSince=null;lastHand=null;
  }
  function setSwitching(value){switching=!!value;if(switching){oneConsumed=true;switchArmed=false;}}
  function nextLayout(){uniforms.previousSeed.value=uniforms.layoutSeed.value;uniforms.layoutSeed.value=(uniforms.layoutSeed.value+1.618033989)%1024;layoutAt=time;}
@@ -156,19 +168,21 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
   uniforms.fieldParallax.value.set((current.x-.5)*2,(.5-current.y)*2);
   camera.updateMatrixWorld();group.position.set(0,0,-4).applyMatrix4(camera.matrixWorld);group.quaternion.copy(camera.quaternion);backdrop.scale.set(viewWidth*.55,viewHeight*.55,1);
   art.position.set((current.x-.5)*viewWidth*.08,framedCenter+(.5-current.y)*framedHeight*.03,0);art.scale.setScalar(Math.min(scale,framedScale));
-  if(!rotationAnchor&&!reduced?.matches)rotation.yaw+=dt*.09;
+  const inGrace=missingSince!==null&&performance.now()/1000-missingSince<.3;
+  if(!rotationAnchor&&!inGrace&&!reduced?.matches)rotation.yaw+=dt*.09;
   art.rotation.x+=(rotation.pitch-art.rotation.x)*ease;art.rotation.y+=(rotation.yaw-art.rotation.y)*ease;
   const speed=Math.min(1,Math.hypot(current.x-oldX,current.y-oldY)*55);trailUniforms.visible.value+=(speed-trailUniforms.visible.value)*(1-Math.exp(-5*dt));
   trailPositions.copyWithin(3,0,trailPositions.length-3);trailPositions[0]=(current.x-.5)*2.4;trailPositions[1]=(.5-current.y)*2;trailPositions[2]=.5;trailGeometry.attributes.position.needsUpdate=true;trail.visible=!reduced?.matches;
  }
  function stopCamera(next='ready'){
+  if(stream||pending||worker)metrics.endedAt=performance.now();
   cancelInputs();
   generation++;clearTimeout(loopTimer);clearTimeout(initTimer);clearTimeout(frameTimer);loopTimer=initTimer=frameTimer=0;
   const reject=rejectInit;rejectInit=null;reject?.(new DOMException('Camera stopped','AbortError'));
   if(worker){worker.onmessage=worker.onerror=null;worker.terminate();worker=null;}
   if(stream){for(const track of stream.getTracks()){track.onended=null;track.stop();}stream=null;}
   if(video){video.pause();video.srcObject=null;video.remove();video=null;}
-  pending=null;lastVideoTime=-1;status(next);
+  pending=null;lastVideoTime=-1;frameStartedAt=null;inFlight=false;lastCaptureAt=null;status(next);
  }
  function loadModel(){
   const model=getModel();if(model===shownModel)return;let sample=cache.get(model);if(!sample){sample=sampleExhibit(THREE,model,count);cache.set(model,sample);}
@@ -187,8 +201,22 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
  }
  function handResult(landmarks,width,height){
   const hand=classifyHand(landmarks,width,height,handPose);
-  if(!hand){oneConsumed=false;cancelInputs();status('no-hand');return;}
   const now=performance.now()/1000;
+  metrics.frames++;metrics.lastResultAt=now*1000;metrics.firstResultAt??=now*1000;
+  if(!hand){
+   metrics.misses++;if(missingSince===null){missingSince=now;cancelCharge();rotationAnchor=null;}
+   if(now-missingSince>=.3){const began=missingSince;oneConsumed=false;cancelInputs();missingSince=began;status('no-hand');}return;
+  }
+  metrics.hands++;
+  const recovered=missingSince!==null;
+  if(recovered){
+   const gap=now-missingSince,continuous=gap<.3&&lastHand&&hand.gesture===lastHand.gesture&&Math.abs(hand.x-lastHand.x)<.06&&Math.abs(hand.y-lastHand.y)<.08&&(hand.gesture!=='one'||oneStartX===null||Math.abs(hand.x-oneStartX)<.10);
+   rotationAnchor=null;
+   if(continuous){metrics.graceRecoveries++;handSince+=gap;oneStarted+=gap;}
+   else{if(gap>=.3)oneConsumed=false;else metrics.discontinuities++;cancelInputs();}
+   missingSince=null;
+  }
+  if(lastHand&&hand.gesture!==lastHand.gesture)metrics.poseFlips++;
   if(hand.gesture!==handCandidate){handCandidate=hand.gesture;handSince=now;rotationAnchor=null;if(handCandidate==='one'){oneStartX=hand.x;oneStartY=hand.y;oneStarted=now;}}
   if(handCandidate!==handPose&&now-handSince>.12){
    handPose=handCandidate;
@@ -196,23 +224,27 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
    handPose=handCandidate=hand.gesture;
    if(handPose!=='one'){oneStartX=null;oneConsumed=false;switchArmed=true;}
   }
-  if(handPose==='one'&&hand.gesture==='one'&&switchArmed&&!switching&&now>switchAfter){
+  if(handPose==='one'&&hand.gesture==='one'&&!recovered){
    if(now-oneStarted>1.2){oneStartX=hand.x;oneStartY=hand.y;oneStarted=now;}
    const movement=hand.x-oneStartX,vertical=Math.abs(hand.y-oneStartY);
    if(Math.abs(movement)>.10&&Math.abs(movement)>vertical*1.4){
-    oneConsumed=true;switchArmed=false;switchAfter=now+.65;
-    try{Promise.resolve(onSwitch(movement<0?1:-1)).catch(error=>console.warn('Gesture exhibit switch:',error));}catch(error){console.warn('Gesture exhibit switch:',error);}
+    if(switching){if(now>blockedAfter){blockedAfter=now+.8;metrics.blockedSwitches++;onSwitchBlocked();}}
+    else if(switchArmed&&now>switchAfter){
+     oneConsumed=true;switchArmed=false;switchAfter=now+.65;metrics.switches++;
+     try{Promise.resolve(onSwitch(movement<0?1:-1)).catch(error=>console.warn('Gesture exhibit switch:',error));}catch(error){console.warn('Gesture exhibit switch:',error);}
+    }
    }
   }
   // A stable two-finger pose rotates; index-only movement is reserved for a single armed exhibit swipe.
   if(hand.gesture==='two'&&handPose==='two')setPointer(hand.x,hand.y,0,true);
   else setPointer(hand.x,hand.y,hand.gesture==='pinch'&&handPose==='pinch'?hand.pinch:0);
+  lastHand={x:hand.x,y:hand.y,gesture:hand.gesture};
   status('tracking');
  }
  function startCamera(){
   if(disposed||!enabled)return Promise.resolve('ready');if(pending)return pending;if(stream)return Promise.resolve(state);
   if(typeof Worker!=='function'||typeof createImageBitmap!=='function'||typeof OffscreenCanvas!=='function'||!navigator.mediaDevices?.getUserMedia)return Promise.resolve(status('unsupported'));
-  oneConsumed=false;cancelInputs();const token=++generation;status('loading');
+  oneConsumed=false;cancelInputs();resetDiagnostics();const token=++generation;status('loading');
   const task=(async()=>{
    try{
     const acquired=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:320},height:{ideal:240},frameRate:{ideal:15,max:15}},audio:false});
@@ -230,20 +262,32 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
      activeWorker.onmessage=event=>{
       if(token!==generation)return;const data=event.data;
       if(data.type==='ready'){clearTimeout(initTimer);initTimer=0;rejectInit=null;resolve();}
-      else if(data.type==='result'){clearTimeout(frameTimer);frameTimer=0;handResult(data.landmarks,data.width,data.height);loopTimer=setTimeout(pump,84);}
+      else if(data.type==='result'){
+       clearTimeout(frameTimer);frameTimer=0;inFlight=false;
+       const started=frameStartedAt;frameStartedAt=null;
+       try{
+        if(started!==null)measure('roundTrip',performance.now()-started);measure('inference',data.inferMs);
+        metrics.inputWidth=Number.isFinite(data.width)&&data.width>0?data.width:0;metrics.inputHeight=Number.isFinite(data.height)&&data.height>0?data.height:0;
+        handResult(data.landmarks,data.width,data.height);
+       }catch(error){console.warn('Hand tracking result:',error);stopCamera('error');}
+       if(token===generation&&stream&&worker)schedule(Math.max(0,84-(performance.now()-(started??performance.now()))));
+      }
       else if(data.type==='error'||data.type==='unsupported'){reject(new Error('Hand tracker inference failed'));stopCamera(data.type==='unsupported'?'unsupported':'error');}
      };
      activeWorker.postMessage({type:'init'});
     });
     if(token!==generation)return state;status('camera');pump();return 'camera';
+    function schedule(delay){clearTimeout(loopTimer);loopTimer=setTimeout(()=>{loopTimer=0;pump();},delay);}
     async function pump(){
-     if(token!==generation||!stream||!worker)return;
-     if(currentVideo.readyState<2||currentVideo.currentTime===lastVideoTime){loopTimer=setTimeout(pump,84);return;}
-     lastVideoTime=currentVideo.currentTime;let bitmap=null;
+     if(token!==generation||!stream||!worker||inFlight)return;
+     if(currentVideo.readyState<2||currentVideo.currentTime===lastVideoTime){schedule(16);return;}
+     lastVideoTime=currentVideo.currentTime;inFlight=true;frameStartedAt=performance.now();if(lastCaptureAt!==null)measure('sampleInterval',frameStartedAt-lastCaptureAt);lastCaptureAt=frameStartedAt;let bitmap=null;
      try{
       const width=currentVideo.videoWidth||320,height=currentVideo.videoHeight||240,scale=Math.min(1,256/Math.max(width,height));
+      metrics.actualVideoWidth=width;metrics.actualVideoHeight=height;
       bitmap=await createImageBitmap(currentVideo,{resizeWidth:Math.round(width*scale),resizeHeight:Math.round(height*scale)});
       if(token!==generation){bitmap.close();return;}
+      measure('capture',performance.now()-frameStartedAt);
       frameTimer=setTimeout(()=>{if(token===generation)stopCamera('error');},5000);
       activeWorker.postMessage({type:'frame',image:bitmap,timestamp:performance.now()},[bitmap]);bitmap=null;
      }catch(error){bitmap?.close();if(token===generation)stopCamera('error');}
@@ -255,5 +299,5 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
  const onVisibility=()=>{if(document.hidden&&(stream||pending))stopCamera('paused');};document.addEventListener('visibilitychange',onVisibility);
  function dispose(){if(disposed)return;setEnabled(false);disposed=true;document.removeEventListener('visibilitychange',onVisibility);scene.remove(group);for(const item of [geometry,material,backdropGeometry,backdropMaterial,lineGeometry,lineMaterial,trailGeometry,trailMaterial])item.dispose();}
  status('ready');
- return {setEnabled,update,setPointer,setAction,changeModel,cancelInputs,setSwitching,startCamera,stopCamera,dispose,get action(){return action;},get textureAvailable(){return textureAvailable;},get video(){return video;},get cameraActive(){return !!stream;}};
+ return {setEnabled,update,setPointer,setAction,changeModel,cancelInputs,setSwitching,startCamera,stopCamera,dispose,resetDiagnostics,get diagnostics(){return diagnostics();},get action(){return action;},get textureAvailable(){return textureAvailable;},get video(){return video;},get cameraActive(){return !!stream;}};
 }
