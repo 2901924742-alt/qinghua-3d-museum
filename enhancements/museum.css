@@ -62,5 +62,40 @@ body.museum-panel-open .tip,body.museum-panel-open #restoreBtn{visibility:hidden
 @media(max-height:500px){#museumGestureDock{max-height:43dvh;overflow-y:auto;padding:8px 12px}#museumGestureGuide{font-size:10px;padding:4px 10px}.gesture-guide-steps{grid-template-columns:repeat(4,1fr);margin-top:3px}#gestureTouchHint{margin-top:3px}}
 #museumGestureDock .gesture-video{position:absolute;right:0;bottom:calc(100% + 8px);width:96px;height:72px;object-fit:cover;transform:scaleX(-1);border:1px solid #5276b4;border-radius:10px;background:#071125}
 @media(max-height:500px){#museumGestureDock .gesture-video{position:static;display:block;margin:8px 0 0 auto}}
-@media(min-width:901px){#museumGesture{position:fixed;top:96px;right:260px}}
+@media(min-width:901px){#museumGesture,#museumView,#resetViewBtn{width:96px;height:44px;padding:8px 5px}#museumView{right:132px}#museumGesture{position:fixed;top:96px;right:234px}}
 @media(max-width:560px){#museumGestureDock{padding:12px 14px;font-size:11px}#gestureTitle{font-size:16px}#museumGestureDock header button{font-size:12px}#museumGestureDock{max-height:45dvh;overflow-y:auto}#museumGestureDock .gesture-video{position:static;display:block;margin:8px 0 0 auto}#gestureHint{line-height:1.5}}
+
+.museum-dialog.innovation-wide{width:min(960px,calc(100% - 40px));margin:auto;max-height:calc(100dvh - 24px)}
+.innovation-wide .museum-panel{max-height:calc(100dvh - 26px)}
+.innovation-root{color:var(--paper)}.innovation-root h3{color:var(--ice)}
+.innovation-eyebrow{font-size:11px;letter-spacing:2px;color:var(--ice)}
+.innovation-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:20px 0}
+.innovation-cards article{display:flex;flex-direction:column;padding:20px;border:1px solid #5276b4;border-radius:16px;background:#10203b}
+.innovation-cards article h3{margin:12px 0 4px;font-size:17px}.innovation-cards article p{flex:1;font-size:13px;color:#c0cde2}.innovation-cards article button{margin-top:12px}
+.innovation-number{font-size:26px;font-weight:600;color:#a9c9ff}
+.innovation-root canvas{position:static;inset:auto;max-width:100%;height:auto;touch-action:auto}
+.innovation-studio-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
+.innovation-canvas-wrap{min-width:0;padding:12px;border:1px solid #5276b4;border-radius:14px;background:#081324}
+.innovation-toolbar,.innovation-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0}
+.innovation-field{display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-height:44px;font-size:13px}
+.innovation-root input,.innovation-root select{accent-color:#a9c9ff;max-width:100%;font:inherit}.innovation-root select{min-height:44px;color:var(--paper);background:#11244c;border:1px solid #5276b4;border-radius:10px;padding:8px}
+.innovation-root input[type=range]{min-height:44px;width:150px}.innovation-root input:focus-visible,.innovation-root select:focus-visible{outline:2px solid var(--ice);outline-offset:3px}
+.innovation-root button{min-height:44px}.innovation-status{min-height:24px;color:#bad9ff}.innovation-note{font-size:12px;color:#b0bfd7}.innovation-root figure{margin:0;min-width:0}.innovation-root figcaption{font-size:12px;color:#b0bfd7}
+.innovation-root button:disabled{opacity:.55;cursor:wait}
+@media(max-width:700px){.innovation-cards{grid-template-columns:1fr;gap:12px}.innovation-cards article{padding:16px}.innovation-studio-grid{grid-template-columns:1fr;gap:16px}.innovation-toolbar,.innovation-actions{gap:6px}.innovation-wide .museum-panel{padding:16px}.museum-dialog.innovation-wide{width:calc(100% - 24px)}}
+
+.innovation-compare-controls{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:end;margin:16px 0}
+.innovation-compare-field{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:13px}.innovation-compare-field select{width:100%;min-width:0}
+.innovation-compare-modes{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.innovation-compare-results{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:16px 0}
+.innovation-compare-card{min-width:0;border:1px solid #5276b4;border-radius:14px;padding:16px;background:#081324}.innovation-compare-card h4{font-size:15px;min-height:44px;overflow-wrap:anywhere}
+.innovation-compare-snapshot{width:100%;height:auto;max-height:420px;object-fit:contain;background:transparent}
+.innovation-compare-clues{font-size:12px;color:#b6cce9}.innovation-compare-metadata summary{min-height:44px;cursor:pointer;display:list-item;align-content:center;font-size:13px}.innovation-compare-metadata p{white-space:pre-line;font-size:12px;line-height:1.6}
+.innovation-compare-download img{width:100%;height:auto}.innovation-compare-download a{display:inline-flex;align-items:center;min-height:44px}
+@media(max-width:560px){.innovation-compare-controls{grid-template-columns:1fr}.innovation-compare-results{gap:8px}.innovation-compare-card{padding:8px}.innovation-compare-card h4{font-size:12px}.innovation-compare-metadata summary{font-size:11px}.innovation-compare-clues{font-size:11px}}
+
+.innovation-wide .museum-panel>header{position:sticky;top:0;z-index:3;background:#0c1527;padding:8px 0}
+
+.innovation-compare-results{scroll-margin-top:80px}
+
+.innovation-wide .museum-panel>header::before{content:"";position:absolute;inset:-24px 0 0;background:#0c1527;z-index:-1}

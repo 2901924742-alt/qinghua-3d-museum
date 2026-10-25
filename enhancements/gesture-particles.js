@@ -78,17 +78,17 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
  group.name='museum-gesture-hologram';group.visible=false;group.add(art);scene.add(group);
  const seeds=new Float32Array(count);for(let i=0;i<count;i++)seeds[i]=(i*.61803398875)%1;
  geometry.setAttribute('seed',new THREE.BufferAttribute(seeds,1));
- const uniforms={time:{value:0},scan:{value:-1.15},spread:{value:0},swirl:{value:0},charge:{value:0},pointSize:{value:4},reduced:{value:0},layoutSeed:{value:1},previousSeed:{value:1},layoutMix:{value:1},fieldCenter:{value:new THREE.Vector2()},fieldSize:{value:new THREE.Vector2(1,1)},fieldParallax:{value:new THREE.Vector2()}};
+ const uniforms={time:{value:0},scan:{value:-1.15},spread:{value:0},swirl:{value:0},charge:{value:0},pointSize:{value:4},reduced:{value:0},layoutSeed:{value:1},previousSeed:{value:1},layoutMix:{value:1},bloomMode:{value:0},fieldCenter:{value:new THREE.Vector2()},fieldSize:{value:new THREE.Vector2(1,1)},fieldParallax:{value:new THREE.Vector2()}};
  const common={transparent:true,depthWrite:false,depthTest:false,toneMapped:false,fog:false};
  const material=new THREE.ShaderMaterial({...common,blending:THREE.AdditiveBlending,uniforms,vertexColors:true,
-  vertexShader:`attribute float seed;uniform float time,scan,spread,swirl,charge,pointSize,reduced,layoutSeed,previousSeed,layoutMix;uniform vec2 fieldCenter,fieldSize,fieldParallax;varying vec3 tint;varying float strength;
+  vertexShader:`attribute float seed;uniform float time,scan,spread,swirl,charge,pointSize,reduced,layoutSeed,previousSeed,layoutMix,bloomMode;uniform vec2 fieldCenter,fieldSize,fieldParallax;varying vec3 tint;varying float strength;
   float noise(float n){return fract(sin(n*127.1+seed*311.7)*43758.5453);}
   vec3 cloud(float patternSeed){float z=noise(patternSeed)*2.0-1.0,r=pow(noise(patternSeed+1.0),.3333333),a=noise(patternSeed+2.0)*6.2831853+time*.11*(1.0-reduced);vec3 ball=vec3(cos(a)*sqrt(max(0.0,1.0-z*z)),sin(a)*sqrt(max(0.0,1.0-z*z)),z)*r;float turn=time*.09*(1.0-reduced),c=cos(turn),s=sin(turn);ball.xz=mat2(c,-s,s,c)*ball.xz;float depth=-4.0+ball.z*2.4;vec2 xy=ball.xy*fieldSize*.40+fieldCenter*(-depth*.25)+fieldParallax*ball.z*fieldSize*.12;return vec3(xy,depth);}
   void main(){float phase=seed*6.2831853;vec3 p=position*(1.0-charge*.1);vec4 mv=modelViewMatrix*vec4(p,1.0);
   float u=fract(seed*3.0),a=u*15.08+floor(seed*3.0)*2.094+time*.65*(1.0-reduced),radius=.3+.65*sqrt(noise(9.0));float depth=-4.0+sin(a)*radius*.85;
   vec2 spiral=vec2(cos(a)*radius*fieldSize.x*.43,(u-.5)*fieldSize.y*.84)+fieldCenter;vec3 vortex=vec3(spiral*(-depth*.25),depth);
   float open=spread*(1.0-charge);mv.xyz=mix(mv.xyz,vortex,swirl*(1.0-charge));mv.xyz=mix(mv.xyz,mix(cloud(previousSeed),cloud(layoutSeed),smoothstep(0.0,1.0,layoutMix)),open);
-  float reveal=1.0-smoothstep(scan-.08,scan+.05,position.y);float band=exp(-abs(position.y-scan)*22.0);float ink=clamp((color.b-color.r)*3.0+.15,0.0,1.0);tint=mix(vec3(.22,.48,1.0),vec3(.50,.82,1.0),ink);tint=mix(tint,vec3(.82,.94,1.0),band*.7+charge*.14);float depthScale=clamp(4.0/max(1.6,-mv.z),.55,2.2);tint=mix(tint,vec3(.72,.9,1.0),open*clamp(depthScale-1.0,0.0,1.0)*.45);float front=mix(.12,1.0,smoothstep(-.1,.65,normalize(normalMatrix*normal).z));strength=reveal*(mix(.38,.95,ink)+band*.8+charge*.35)*mix(front,1.0,max(open,swirl))*mix(1.0,depthScale,open*.65);gl_Position=projectionMatrix*mv;gl_PointSize=pointSize*(.72+seed*.45+band*.3)*(1.0-open*.26)*mix(1.0,depthScale,max(open,swirl));}`,
+  float reveal=1.0-smoothstep(scan-.08,scan+.05,position.y);float band=exp(-abs(position.y-scan)*22.0);float ink=clamp((color.b-color.r)*3.0+.15,0.0,1.0);tint=mix(vec3(.22,.48,1.0),vec3(.50,.82,1.0),ink);tint=mix(tint,vec3(.82,.94,1.0),band*.7+charge*.14);float depthScale=clamp(4.0/max(1.6,-mv.z),.55,2.2);tint=mix(tint,vec3(.72,.9,1.0),open*clamp(depthScale-1.0,0.0,1.0)*.45);float front=mix(.12,1.0,smoothstep(-.1,.65,normalize(normalMatrix*normal).z));strength=reveal*(mix(.38,.95,ink)+band*.8+charge*.35)*mix(front,1.0,max(open,swirl))*mix(1.0,depthScale,open*.65)*(1.0-bloomMode*.3);gl_Position=projectionMatrix*mv;gl_PointSize=pointSize*(.72+seed*.45+band*.3)*(1.0-open*.26)*mix(1.0,depthScale,max(open,swirl));}`,
   fragmentShader:`varying vec3 tint;varying float strength;void main(){float r=length(gl_PointCoord-.5)*2.0;if(r>1.0)discard;float core=exp(-r*r*10.0),glow=exp(-r*r*4.8)*.25;gl_FragColor=vec4(tint,(core+glow)*strength);}`});
  const points=new THREE.Points(geometry,material);points.name='museum-gesture-vessel';points.frustumCulled=false;points.renderOrder=8;art.add(points);
  const backdropGeometry=new THREE.PlaneGeometry(2,2),backdropMaterial=new THREE.MeshBasicMaterial({...common,color:0x020812,opacity:.94});
@@ -115,6 +115,7 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
  const reduced=typeof matchMedia==='function'?matchMedia('(prefers-reduced-motion:reduce)'):null;
  let enabled=false,disposed=false,time=0,state='',generation=0,stream=null,video=null,worker=null,pending=null,shownModel=null,previousVisible=true,charged=false,releaseAt=-10,textureAvailable=false;
  let loopTimer=0,initTimer=0,frameTimer=0,rejectInit=null,lastVideoTime=-1,action='orbit',handPose='',handCandidate='',handSince=0,oneStartX=null,oneStartY=0,oneStarted=0,switchAfter=0,switchArmed=true,oneConsumed=false,switching=false,layoutAt=-10,notifiedPose='';
+ let bloom=null,bloomPending=null,bloomRequested=false;
  let missingSince=null,lastHand=null,blockedAfter=0,frameStartedAt=null,inFlight=false,lastCaptureAt=null,metrics;
  function resetDiagnostics(){metrics={startedAt:performance.now(),endedAt:null,frames:0,hands:0,misses:0,graceRecoveries:0,discontinuities:0,poseFlips:0,switches:0,blockedSwitches:0,actualVideoWidth:0,actualVideoHeight:0,inputWidth:0,inputHeight:0,firstResultAt:null,lastResultAt:null};lastCaptureAt=null;}
  function measure(name,value){if(!Number.isFinite(value)||value<0)return;metrics[name+'Count']=(metrics[name+'Count']||0)+1;metrics[name+'Total']=(metrics[name+'Total']||0)+value;metrics[name+'LastMs']=value;metrics[name+'MaxMs']=Math.max(metrics[name+'MaxMs']||0,value);metrics[name+'MinMs']=Math.min(metrics[name+'MinMs']??value,value);}
@@ -145,6 +146,15 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
   if(disposed||!['orbit','vortex','scatter'].includes(next))return false;
   if(next==='scatter')nextLayout();if(next!==action){cancelInputs();action=next;onStatus({state,action,gesture:handPose});}return true;
  }
+ async function setBloomMode(value){
+  bloomRequested=!!value;
+  if(bloomRequested&&!bloom){
+   bloomPending ||= import('./motif-bloom.js').catch(error=>{bloomPending=null;throw error;});
+   const {createMotifBloom}=await bloomPending;if(disposed||!bloomRequested)return false;
+   if(!bloom){bloom=createMotifBloom({THREE,isDesktop:isDesktop()});art.add(bloom.group);}
+  }
+  uniforms.bloomMode.value=bloomRequested?1:0;lines.visible=!bloomRequested;if(bloom)bloom.group.visible=bloomRequested;return bloomRequested;
+ }
  function update(delta){
   if(!enabled||disposed)return;
   const dt=Number.isFinite(delta)?Math.max(0,Math.min(.05,delta)):0,ease=1-Math.exp(-8*dt),oldX=current.x,oldY=current.y;time+=dt;
@@ -173,6 +183,7 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
   art.rotation.x+=(rotation.pitch-art.rotation.x)*ease;art.rotation.y+=(rotation.yaw-art.rotation.y)*ease;
   const speed=Math.min(1,Math.hypot(current.x-oldX,current.y-oldY)*55);trailUniforms.visible.value+=(speed-trailUniforms.visible.value)*(1-Math.exp(-5*dt));
   trailPositions.copyWithin(3,0,trailPositions.length-3);trailPositions[0]=(current.x-.5)*2.4;trailPositions[1]=(.5-current.y)*2;trailPositions[2]=.5;trailGeometry.attributes.position.needsUpdate=true;trail.visible=!reduced?.matches;
+  if(bloomRequested&&bloom)bloom.update(time,uniforms.spread.value,current.pinch,!!reduced?.matches);
  }
  function stopCamera(next='ready'){
   if(stream||pending||worker)metrics.endedAt=performance.now();
@@ -297,7 +308,7 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
   pending=task;task.finally(()=>{if(pending===task)pending=null;});return task;
  }
  const onVisibility=()=>{if(document.hidden&&(stream||pending))stopCamera('paused');};document.addEventListener('visibilitychange',onVisibility);
- function dispose(){if(disposed)return;setEnabled(false);disposed=true;document.removeEventListener('visibilitychange',onVisibility);scene.remove(group);for(const item of [geometry,material,backdropGeometry,backdropMaterial,lineGeometry,lineMaterial,trailGeometry,trailMaterial])item.dispose();}
+ function dispose(){if(disposed)return;setEnabled(false);disposed=true;document.removeEventListener('visibilitychange',onVisibility);bloomRequested=false;bloom?.dispose();bloom=null;scene.remove(group);for(const item of [geometry,material,backdropGeometry,backdropMaterial,lineGeometry,lineMaterial,trailGeometry,trailMaterial])item.dispose();}
  status('ready');
- return {setEnabled,update,setPointer,setAction,changeModel,cancelInputs,setSwitching,startCamera,stopCamera,dispose,resetDiagnostics,get diagnostics(){return diagnostics();},get action(){return action;},get textureAvailable(){return textureAvailable;},get video(){return video;},get cameraActive(){return !!stream;}};
+ return {setEnabled,setBloomMode,update,setPointer,setAction,changeModel,cancelInputs,setSwitching,startCamera,stopCamera,dispose,resetDiagnostics,get diagnostics(){return diagnostics();},get action(){return action;},get textureAvailable(){return textureAvailable;},get video(){return video;},get cameraActive(){return !!stream;}};
 }

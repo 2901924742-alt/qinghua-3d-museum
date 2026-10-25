@@ -29,3 +29,6 @@ Object.assign(copy.en,{previous:'Previous porcelain',next:'Next porcelain',colle
 
 Object.assign(copy.zh,{engineTimeout:'渲染组件长时间未能下载，请检查网络后重试。若在微信内，请点击右上角，在浏览器中打开。',browserError:'当前浏览器不支持展馆所需的模块映射，请更新系统或浏览器。若在微信内，请点击右上角，在浏览器中打开。',modelTimeout:'模型下载或解析长时间没有进展，请检查网络并重新加载。若在微信内，请点击右上角，在浏览器中打开。',modelPreparing:'正在接收或解析模型数据…',scenePreparing:'正在准备展馆画面…'});
 Object.assign(copy.en,{engineTimeout:'Rendering components have not arrived. Check the connection, or open this page in an updated browser and retry.',browserError:'This browser does not support the required module maps. Update your system or browser. In WeChat, use the top-right menu to open this page in a browser.',modelTimeout:'Model download or decoding has stopped progressing. Reload, or open in an updated browser and retry.',modelPreparing:'Receiving or decoding model data…',scenePreparing:'Preparing the museum view…'});
+
+Object.assign(copy.zh,{studio:'创意工坊'});
+Object.assign(copy.en,{studio:'Creative workshop'});

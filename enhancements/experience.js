@@ -6,14 +6,15 @@ import {createGestureExperience} from './gesture-experience.js';
 // Enhancements share the existing animation loop and never change the porcelain renderer settings.
 export function createExperience({THREE,scene,renderer,camera,controls,renderMuseum,isDesktop,hideInfo,restoreInfo,loadExhibit,disposeExhibit,onExhibitChange}) {
  const lifetime=new AbortController(),cleanup=[];
+ let disposed=false;
  const listen=(node,type,handler,options={})=>node.addEventListener(type,handler,{...options,signal:lifetime.signal});
- function dispose(){lifetime.abort();cleanup.reverse().forEach(fn=>{try{fn();}catch(error){console.warn('Museum enhancement cleanup:',error);}});cleanup.length=0;}
+ function dispose(){if(disposed)return;disposed=true;lifetime.abort();cleanup.reverse().forEach(fn=>{try{fn();}catch(error){console.warn('Museum enhancement cleanup:',error);}});cleanup.length=0;}
  try {
  let model=null,anchors=null,intro=null,introCancelled=false,time=0,meteorAt=10,meteorStart=-1,pausedEffects=false,gallery=null,exhibitIndex=0;
  const reduced=matchMedia('(prefers-reduced-motion: reduce)');
  const dummy=new THREE.Object3D(),tmp=new THREE.Vector3(),tmpNormal=new THREE.Vector3();
  let gesture;
- const ui=createUI({controls,hideInfo,restoreInfo,cancelIntro,capture,unwrap,switchExhibit:direction=>gallery?.step(direction),openGesture:()=>gesture.open(),gestureActive:()=>gesture?.active});
+ const ui=createUI({controls,hideInfo,restoreInfo,cancelIntro,capture,unwrap,switchExhibit:direction=>gallery?.step(direction),openGesture:()=>gesture.open(),gestureActive:()=>gesture?.active,openBloom:()=>gesture.openBloom(),getStudioRenderer});
  cleanup.push(()=>ui.dispose());
  gesture=createGestureExperience({THREE,scene,camera,renderer,controls,isDesktop,getModel:()=>model,getLanguage:()=>ui.language,cancelIntro,pauseEffects:value=>{pausedEffects=value;},getEffectsPaused:()=>pausedEffects,switchExhibit:direction=>gallery?.step(direction,{animate:false}),cancelSwitch:()=>gallery?.cancel('reset')});
  cleanup.push(()=>{if(intro){camera.position.copy(initialPosition);controls.target.copy(initialTarget);controls.update(0);}cancelIntro('dispose');});
@@ -32,6 +33,16 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  // Open on the completed native click; opening during pointerup can retarget a touch's
  // following compatibility click to the dialog backdrop and immediately close it.
  listen(renderer.domElement,'click',()=>{const button=pendingHotspot;pendingHotspot=null;if(button&&!button.hidden&&ui.hotspotsOn&&!ui.panel)button.click();});
+ let studioPromise=null;
+ async function getStudioRenderer(){
+  if(disposed)throw new DOMException('Museum closed','AbortError');
+  if(!studioPromise)studioPromise=import('./studio-renderer.js').then(({createStudioRenderer})=>{
+   if(disposed)throw new DOMException('Museum closed','AbortError');
+   const studio=createStudioRenderer({THREE,renderer,loadExhibit,disposeExhibit,getModel:()=>model,getIndex:()=>exhibitIndex});
+   cleanup.push(()=>studio.dispose());return {THREE,...studio};
+  }).catch(error=>{studioPromise=null;throw error;});
+  return studioPromise;
+ }
  const initialPosition=controls.position0.clone(),initialTarget=controls.target0.clone();
  gallery=createGallery({THREE,renderer,scene,camera,controls,loadExhibit,disposeExhibit,getModel:()=>model,commit:ready,ui:{galleryState(index,target,state){ui.galleryState(index,target,state);gesture.galleryState(index,target,state);}},cancelIntro,hideInfo,restoreInfo});
  cleanup.push(()=>gallery.dispose());

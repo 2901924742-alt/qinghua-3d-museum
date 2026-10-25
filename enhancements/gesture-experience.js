@@ -29,8 +29,8 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
  function status(value){state=value;translate();}
  function translate(){
   const t=text[getLanguage()]||text.zh;
-  const zh=getLanguage()==='zh';
-  $('gestureTitle').textContent=t.title;$('gestureExit').textContent=t.exit;$('gesturePrivacy').textContent=t.privacy;
+  const zh=getLanguage()==='zh',bloom=!!mode?.bloom;
+  $('gestureTitle').textContent=bloom?(zh?'纹样活化 · 一器生花':'Living ornament · Porcelain in bloom'):t.title;$('gestureExit').textContent=t.exit;$('gesturePrivacy').textContent=bloom?(zh?'取青花花卉意象绘制的原创光纹，属于艺术演绎，非原件纹样复原。摄像头仅在本机识别，不上传或录制画面。':'Original floral light art inspired by blue-and-white porcelain, not a reconstruction of an original decoration. Camera tracking remains on this device; no video is uploaded or recorded.'):t.privacy;
   $('gestureHideUI').textContent=zh?'隐藏界面':'Hide interface';showUI.textContent=zh?'显示界面':'Show interface';
   if(diagnosticsEnabled){
    $('gestureDiagnosticTitle').textContent=zh?'本机诊断（不上传）':'Local diagnostics (not uploaded)';
@@ -39,13 +39,13 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
    updateDiagnostics();
   }
   $('gestureGuideTitle').textContent=zh?'摄像头手势 · 在下方手动开启':'Camera gestures · Enable below';
-  const instructions=zh?[['食指左右划动','左下一件 · 右上一件；收指后可再切'],['双指转动','横移转整圈 · 上下看俯仰；收指再移可接着转'],['张开手掌','向前后左右扩散成粒子云'],['握紧拳头','聚合回当前器形']]:[['One finger','Swipe left: next / right: previous. Lower finger to repeat.'],['Two fingers','Move sideways to spin, vertically to tilt. Lower and reposition to continue.'],['Open palm','Expand into a cloud with depth'],['Fist','Gather particles into the vessel']];
+  const instructions=zh?[['食指左右划动','左下一件 · 右上一件；收指后可再切'],['双指转动','横移转整圈 · 上下看俯仰；收指再移可接着转'],['张开手掌',bloom?'缠枝向外舒展 · 一器生花':'向前后左右扩散成粒子云'],['握紧拳头',bloom?'花枝收拢 · 聚纹成器':'聚合回当前器形']]:[['One finger','Swipe left: next / right: previous. Lower finger to repeat.'],['Two fingers','Move sideways to spin, vertically to tilt. Lower and reposition to continue.'],['Open palm',bloom?'Unfold the flowering vines':'Expand into a cloud with depth'],['Fist',bloom?'Gather the vines around the vessel':'Gather particles into the vessel']];
   const steps=guide.querySelector('.gesture-guide-steps');
-  if(guide.dataset.language!==String(zh)){steps.replaceChildren(...instructions.map(([name,hint])=>{const item=document.createElement('div'),label=document.createElement('b'),detail=document.createElement('span');label.textContent=name;detail.textContent=hint;item.append(label,detail);return item;}));guide.dataset.language=String(zh);}
-  $('gestureTouchHint').textContent=zh?'触屏 / 鼠标：拖动旋转 · 长按蓄能，松开星散':'Touch / mouse: drag to rotate; hold then release to scatter, or choose an effect below.';
+  const guideKey=String(zh)+'-'+bloom;if(guide.dataset.language!==guideKey){steps.replaceChildren(...instructions.map(([name,hint])=>{const item=document.createElement('div'),label=document.createElement('b'),detail=document.createElement('span');label.textContent=name;detail.textContent=hint;item.append(label,detail);return item;}));guide.dataset.language=guideKey;}
+  $('gestureTouchHint').textContent=bloom?(zh?'触屏 / 鼠标：拖动旋转 · 长按后松开生花；也可用下方按钮舒展、回旋与收拢。':'Touch / mouse: drag to rotate; hold and release to bloom, or use the effect buttons below.'):(zh?'触屏 / 鼠标：拖动旋转 · 长按蓄能，松开星散':'Touch / mouse: drag to rotate; hold then release to scatter, or choose an effect below.');
   $('gestureCamera').textContent=effect?.cameraActive?t.stop:t.camera;$('gestureCamera').disabled=state==='loading'||!effect;
   $('gestureStatus').textContent=t[{camera:'cameraOn','no-hand':'noHand',ended:'paused'}[state]||state]||t.ready;
-  if(state==='tracking'&&recognized){const labels=zh?{one:'单指 · 左右划动切换',two:'双指 · 横移旋转，上下俯仰',open:'张掌 · 立体星散',fist:'握拳 · 聚合成器',pinch:'捏合 · 蓄能'}:{one:'One finger · Swipe left / right',two:'Two fingers · Spin and tilt',open:'Open palm · Spatial cloud',fist:'Fist · Gather',pinch:'Pinch · Charge'};if(labels[recognized])$('gestureStatus').textContent=labels[recognized];}
+  if(state==='tracking'&&recognized){const labels=zh?{one:'单指 · 左右划动切换',two:'双指 · 横移旋转，上下俯仰',open:'张掌 · 立体星散',fist:'握拳 · 聚合成器',pinch:'捏合 · 蓄能'}:{one:'One finger · Swipe left / right',two:'Two fingers · Spin and tilt',open:'Open palm · Spatial cloud',fist:'Fist · Gather',pinch:'Pinch · Charge'};if(bloom){labels.open=zh?'张掌 · 缠枝生花':'Open palm · Unfold flowers';labels.fist=zh?'握拳 · 聚纹成器':'Fist · Gather floral light';}if(labels[recognized])$('gestureStatus').textContent=labels[recognized];}
   if(blockedUntil>performance.now())$('gestureStatus').textContent=zh?'正在切换展品，完成后收指再划动':'Switch in progress; lower your finger and swipe again when ready';
   const busy=switchState==='loading'||switchState==='moving';
   $('gestureCounter').textContent=`${String(index+1).padStart(2,'0')} / ${String(exhibits.length).padStart(2,'0')}`;
@@ -53,7 +53,7 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
   dock.querySelector('.gesture-exhibits').setAttribute('aria-busy',String(busy));
   for(const [id,key] of [['gesturePrevious','previous'],['gestureNext','next']]){$(id).setAttribute('aria-label',t[key]);$(id).disabled=busy||!effect;}
   $('gestureSwitchStatus').hidden=!busy&&switchState!=='error';$('gestureSwitchStatus').textContent=busy?t.switching:t.switchError;
-  for(const button of dock.querySelectorAll('[data-action]')){button.textContent=t[button.dataset.action];button.setAttribute('aria-pressed',String((effect?.action||'orbit')===button.dataset.action));button.disabled=!effect;}
+  for(const button of dock.querySelectorAll('[data-action]')){button.textContent=bloom?(zh?{orbit:'聚纹成器',vortex:'缠枝回旋',scatter:'一器生花'}:{orbit:'Gather',vortex:'Floral orbit',scatter:'Bloom'})[button.dataset.action]:t[button.dataset.action];button.setAttribute('aria-pressed',String((effect?.action||'orbit')===button.dataset.action));button.disabled=!effect;}
  }
  function cancelInputs(){clearTimeout(holdTimer);holdTimer=0;pointers.clear();effect?.cancelInputs();}
  function updateDiagnostics(force=false){
@@ -84,7 +84,7 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
  }
  function exportDiagnostics(){
   if(!effect)return;
-  const data={schema:1,testVersion:'offline-20261024-r1',exportedAt:new Date().toISOString(),exhibit:exhibits[index].id,userAgent:navigator.userAgent,secureContext:window.isSecureContext,viewport:{width:innerWidth,height:innerHeight},diagnostics:effect.diagnostics};
+  const data={schema:1,testVersion:'offline-20261025-innovation-r1',exportedAt:new Date().toISOString(),exhibit:exhibits[index].id,userAgent:navigator.userAgent,secureContext:window.isSecureContext,viewport:{width:innerWidth,height:innerHeight},diagnostics:effect.diagnostics};
   if(diagnosticURL)URL.revokeObjectURL(diagnosticURL);
   diagnosticURL=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
   const link=document.createElement('a');link.href=diagnosticURL;link.download='museum-gesture-diagnostics-'+Date.now()+'.json';document.body.append(link);link.click();link.remove();
@@ -97,7 +97,7 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
  }
  function close(){
   generation++;if(!mode)return;
-  const previous=mode;mode=null;blockedUntil=0;cancelSwitch();cancelInputs();effect?.setEnabled(false);
+  const previous=mode;mode=null;blockedUntil=0;cancelSwitch();cancelInputs();effect?.setEnabled(false);effect?.setBloomMode(false);
   if(diagnosticURL){URL.revokeObjectURL(diagnosticURL);diagnosticURL=null;}
   dock.querySelector('video')?.remove();dock.hidden=guide.hidden=true;setUIHidden(false,false);document.body.classList.remove('museum-gesture');
   controls.enabled=previous.enabled;controls.autoRotate=previous.auto;pauseEffects(previous.paused);
@@ -105,9 +105,9 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
   const focus=[previous.focus,document.getElementById('museumMore'),document.getElementById('museumLanguage')].find(canFocus);
   focus?.focus({preventScroll:true});state='ready';
  }
- async function open(){
+ async function open(variant='particles'){
   if(disposed||mode)return;cancelIntro('gesture');
-  mode={enabled:controls.enabled,auto:controls.autoRotate,paused:getEffectsPaused(),focus:document.activeElement};
+  mode={enabled:controls.enabled,auto:controls.autoRotate,paused:getEffectsPaused(),focus:document.activeElement,bloom:variant==='bloom'};
   controls.enabled=false;controls.autoRotate=false;pauseEffects(true);document.body.classList.add('museum-gesture');dock.hidden=guide.hidden=false;state='loading';translate();$('gestureExit').focus({preventScroll:true});
   // Clear the orbit's residual inertia without moving the saved museum viewpoint.
   const position=camera.position.clone(),target=controls.target.clone(),damping=controls.enableDamping;
@@ -117,7 +117,9 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
    pending ||= import('./gesture-particles.js').catch(error=>{pending=null;throw error;});
    const {createGestureParticles}=await pending;if(!mode||token!==generation||disposed)return;
    effect ||= createGestureParticles({THREE,scene,camera,renderer,isDesktop,getModel,onStatus:result=>{if(mode){recognized=result.gesture||'';status(result.state);}},onSwitch:direction=>{if(mode&&(switchState==='idle'||switchState==='error'))switchExhibit(direction);},onSwitchBlocked:()=>{if(mode){blockedUntil=performance.now()+750;translate();}}});
-   effect.setEnabled(true);status(effect.textureAvailable?'ready':'shapeOnly');
+   if(mode.bloom)try{await effect.setBloomMode(true);}catch(error){console.warn('Floral light: original particles remain available',error);if(!mode||token!==generation||disposed)return;mode.bloom=false;await effect.setBloomMode(false);}
+   else await effect.setBloomMode(false);
+   if(!mode||token!==generation||disposed)return;effect.setEnabled(true);status(effect.textureAvailable?'ready':'shapeOnly');
   }catch(error){console.warn('Gesture experience:',error);if(mode&&token===generation)status('failed');}
  }
  async function toggleCamera(){
@@ -150,5 +152,5 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
  listen(window,'blur',cancelInputs);
  listen(document,'visibilitychange',()=>{if(document.hidden&&mode){cancelInputs();effect?.stopCamera();dock.querySelector('video')?.remove();status('paused');}});
  listen(window,'pagehide',close);listen(canvas,'webglcontextlost',close);
- return {open,close,translate,galleryState(current,target,kind){index=current;switchState=kind;effect?.setSwitching(kind==='loading'||kind==='moving');translate();},changeModel(){if(mode&&effect){cancelInputs();effect.changeModel();translate();}},get active(){return !!mode;},update(delta){if(mode){controls.enabled=false;controls.autoRotate=false;if(!document.hidden)try{effect?.update(delta);updateDiagnostics();if(blockedUntil&&performance.now()>=blockedUntil){blockedUntil=0;translate();}}catch(error){console.warn('Gesture frame:',error);close();}}},dispose(){if(disposed)return;close();disposed=true;lifetime.abort();effect?.dispose();effect=null;dock.remove();guide.remove();showUI.remove();}};
+ return {open,openBloom:()=>open('bloom'),close,translate,galleryState(current,target,kind){index=current;switchState=kind;effect?.setSwitching(kind==='loading'||kind==='moving');translate();},changeModel(){if(mode&&effect){cancelInputs();effect.changeModel();translate();}},get active(){return !!mode;},update(delta){if(mode){controls.enabled=false;controls.autoRotate=false;if(!document.hidden)try{effect?.update(delta);updateDiagnostics();if(blockedUntil&&performance.now()>=blockedUntil){blockedUntil=0;translate();}}catch(error){console.warn('Gesture frame:',error);close();}}},dispose(){if(disposed)return;close();disposed=true;lifetime.abort();effect?.dispose();effect=null;dock.remove();guide.remove();showUI.remove();}};
 }
