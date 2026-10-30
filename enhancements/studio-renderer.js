@@ -2,39 +2,50 @@ import {exhibits} from './exhibits.js';
 
 // On-demand previews reuse the museum context; no second WebGL renderer or loop.
 export function createStudioRenderer({THREE,renderer,loadExhibit,disposeExhibit,getModel,getIndex}) {
- let target=null,linear=null,outputScene=null,outputMaterial=null,outputGeometry=null,disposed=false;
+ let target=null,linear=null,outputScene=null,outputMaterial=null,outputGeometry=null,pixels=null,image=null,disposed=false;
  const outputCamera=new THREE.Camera();
  const abort=signal=>{if(disposed||signal?.aborted)throw signal?.reason||new DOMException('Studio closed','AbortError');};
- function renderPreview(scene,camera,canvas) {
+ function renderPreview(scene,camera,canvas,section=false) {
   abort();
+  if(typeof section!=='boolean')throw new TypeError('Invalid section option');
   if(renderer.getContext().isContextLost())throw new Error('WebGL context unavailable');
   const width=canvas.width,height=canvas.height;
   if(!(width>0&&height>0&&width<=1024&&height<=1024))throw new RangeError('Invalid preview size');
   if(!target){
    target=new THREE.WebGLRenderTarget(width,height,{depthBuffer:false});
-   const hdr=renderer.capabilities.isWebGL2?renderer.extensions.has('EXT_color_buffer_float'):renderer.extensions.has('EXT_color_buffer_half_float');
-   // shortcut: older GPUs use LDR previews; calibrate highlights if their output clips.
-   linear=new THREE.WebGLRenderTarget(width,height,{type:hdr?THREE.HalfFloatType:THREE.UnsignedByteType,minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter});linear.texture.colorSpace=THREE.LinearSRGBColorSpace;
    outputMaterial=new THREE.RawShaderMaterial({depthTest:false,depthWrite:false,blending:THREE.NoBlending,toneMapped:false,
-    uniforms:{image:{value:linear.texture},toneMappingExposure:{value:renderer.toneMappingExposure}},
+    uniforms:{image:{value:null},toneMappingExposure:{value:renderer.toneMappingExposure}},
     vertexShader:'precision highp float;attribute vec3 position;attribute vec2 uv;varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',
     fragmentShader:'precision highp float;uniform sampler2D image;varying vec2 vUv;\n#include <tonemapping_pars_fragment>\n#include <colorspace_pars_fragment>\nvoid main(){vec4 c=texture2D(image,vUv);gl_FragColor=sRGBTransferOETF(vec4(ACESFilmicToneMapping(c.rgb),c.a));}'});
    outputGeometry=new THREE.PlaneGeometry(2,2);outputScene=new THREE.Scene();outputScene.add(new THREE.Mesh(outputGeometry,outputMaterial));
-  } else if(target.width!==width||target.height!==height){target.setSize(width,height);linear.setSize(width,height);}
+  } else if(target.width!==width||target.height!==height)target.setSize(width,height);
   const previous=renderer.getRenderTarget(),viewport=renderer.getViewport(new THREE.Vector4()),scissor=renderer.getScissor(new THREE.Vector4()),test=renderer.getScissorTest();
-  const color=renderer.getClearColor(new THREE.Color()),alpha=renderer.getClearAlpha(),auto=renderer.autoClear;
-  const pixels=new Uint8Array(width*height*4);
+  const color=renderer.getClearColor(new THREE.Color()),alpha=renderer.getClearAlpha(),auto=renderer.autoClear,clipping=renderer.localClippingEnabled,autoStencil=renderer.autoClearStencil;
+  let candidate=null;
+  if(!pixels||!image||pixels.length!==width*height*4||image.width!==width||image.height!==height){
+   const context=canvas.getContext('2d');if(!context)throw new Error('Canvas unavailable');
+   pixels=new Uint8Array(width*height*4);image=context.createImageData(width,height);
+  }
   try {
+   if(!linear||linear.stencilBuffer!==section||linear.width!==width||linear.height!==height){
+    const hdr=renderer.capabilities.isWebGL2?renderer.extensions.has('EXT_color_buffer_float'):renderer.extensions.has('EXT_color_buffer_half_float');
+    // Older GPUs retain the existing LDR path; stencil only changes the depth attachment.
+    candidate=new THREE.WebGLRenderTarget(width,height,{type:hdr?THREE.HalfFloatType:THREE.UnsignedByteType,stencilBuffer:section,minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter});candidate.texture.colorSpace=THREE.LinearSRGBColorSpace;
+    renderer.setRenderTarget(candidate);
+    const gl=renderer.getContext();if(gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE)throw new Error('Preview framebuffer unavailable');
+    const old=linear;linear=candidate;candidate=null;outputMaterial.uniforms.image.value=linear.texture;old?.dispose();
+   }
    // setRenderTarget uses physical pixels; setViewport would apply screen DPR a second time.
+   renderer.localClippingEnabled=section;renderer.autoClearStencil=true;
    renderer.setRenderTarget(linear);renderer.setScissorTest(false);renderer.setClearColor(0x000000,0);renderer.autoClear=true;
    renderer.render(scene,camera);
    outputMaterial.uniforms.toneMappingExposure.value=renderer.toneMappingExposure;
    renderer.setRenderTarget(target);renderer.render(outputScene,outputCamera);renderer.readRenderTargetPixels(target,0,0,width,height,pixels);
   } finally {
-   renderer.setRenderTarget(previous);renderer.setViewport(viewport);renderer.setScissor(scissor);renderer.setScissorTest(test);renderer.setClearColor(color,alpha);renderer.autoClear=auto;
+   renderer.localClippingEnabled=clipping;renderer.autoClearStencil=autoStencil;renderer.autoClear=auto;
+   try{renderer.setRenderTarget(previous);renderer.setViewport(viewport);renderer.setScissor(scissor);renderer.setScissorTest(test);renderer.setClearColor(color,alpha);}finally{candidate?.dispose();}
   }
   const context=canvas.getContext('2d');if(!context)throw new Error('Canvas unavailable');
-  const image=context.createImageData(width,height);
   for(let y=0;y<height;y++)image.data.set(pixels.subarray((height-1-y)*width*4,(height-y)*width*4),y*width*4);
   context.putImageData(image,0,0);return canvas;
  }
@@ -60,5 +71,6 @@ export function createStudioRenderer({THREE,renderer,loadExhibit,disposeExhibit,
    abort(signal);return renderPreview(scene,camera,canvas);
   } finally {if(owned)disposeExhibit(owned);}
  }
- return {renderPreview,captureExhibit,dispose(){disposed=true;target?.dispose();linear?.dispose();outputMaterial?.dispose();outputGeometry?.dispose();target=linear=outputScene=outputMaterial=outputGeometry=null;}};
+ function releasePreview(){target?.dispose();linear?.dispose();outputMaterial?.dispose();outputGeometry?.dispose();target=linear=outputScene=outputMaterial=outputGeometry=pixels=image=null;}
+ return {renderPreview,captureExhibit,releasePreview,dispose(){disposed=true;releasePreview();}};
 }

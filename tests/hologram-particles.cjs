@@ -67,8 +67,16 @@ const source=fs.readFileSync(file,'utf8').replaceAll('export function ','functio
   const v=new THREE.Vector3(),position=points.geometry.attributes.position;for(let i=0;i<position.count;i+=20){v.fromBufferAttribute(position,i).applyMatrix4(points.matrixWorld).project(camera);const py=(-v.y*.5+.5)*view.height;assert(py<view.dockTop-6,'A short-screen dock cannot cover the formed vessel');assert(py>view.guideBottom+6,'The guide cannot cover the formed vessel');}
   const uniforms=points.material.uniforms,h=2*Math.tan(camera.fov*Math.PI/360)*4;
   const top=(-((uniforms.fieldCenter.value.y+uniforms.fieldSize.value.y/2)/h)*1+.5)*view.height,bottom=(-((uniforms.fieldCenter.value.y-uniforms.fieldSize.value.y/2)/h)*1+.5)*view.height;
-  assert(top>view.guideBottom+12&&bottom<view.dockTop-16,'Nominal scatter field is sized to the free viewport before depth and parallax');
-  for(let i=0;i<100;i++)effect.update(1/60);const visibleScale=art.scale.x,visibleCenter=art.position.y,visibleSize=uniforms.fieldSize.value.clone();uiHidden=true;for(let i=0;i<100;i++)effect.update(1/60);assert.equal(art.scale.x,visibleScale,'Hiding UI cannot enlarge the formed vessel');assert(Math.abs(art.position.y-visibleCenter)<.001,'Hiding UI preserves the formed vessel position');assert(uniforms.fieldSize.value.y>visibleSize.y*1.4,'Hidden UI opens the whole height for the volumetric cloud');
+  const rawTop=view.guideBottom+12,rawBottom=view.dockTop-16,rawHeight=Math.max(0,rawBottom-rawTop),expanded=Math.max(0,Math.min(view.height*.48,240)-rawHeight)/2;
+  assert(Number.isFinite(top)&&Number.isFinite(bottom)&&top<bottom,'Nominal scatter field is finite and nonzero');
+  assert(top>rawTop-expanded&&bottom<rawBottom+expanded,'Nominal field stays inside the free viewport plus the R15 minimum-readable-height allowance');
+  for(let i=0;i<100;i++)effect.update(1/60);const visibleScale=art.scale.x,visibleCenter=art.position.y,visibleSize=uniforms.fieldSize.value.clone();uiHidden=true;effect.update(1/60);
+  const firstHiddenScale=art.scale.x;assert(firstHiddenScale>visibleScale,'Hiding UI begins enlarging the formed vessel instead of freezing it');
+  assert(Math.abs(art.position.y)<Math.abs(visibleCenter),'Hiding UI begins moving smoothly toward the full-view centre');
+  for(let i=0;i<99;i++)effect.update(1/60);
+  assert(art.scale.x>firstHiddenScale&&firstHiddenScale-visibleScale<art.scale.x-visibleScale,'Hidden UI enlargement is progressive, not a first-frame jump');assert(Math.abs(art.position.y)<.001,'Hidden UI converges to the full-view centre');assert(uniforms.fieldSize.value.y>visibleSize.y*1.4,'Hidden UI opens the whole height for the volumetric cloud');
+  group.updateMatrixWorld(true);for(let i=0;i<position.count;i+=20){v.fromBufferAttribute(position,i).applyMatrix4(points.matrixWorld).project(camera);assert(Math.abs(v.x)<.98&&Math.abs(v.y)<.98,'Hidden UI keeps the projected formed vessel inside the actual full viewport');}
+  const settledScale=art.scale.x;for(let i=0;i<20;i++)effect.update(1/60);assert(Math.abs(art.scale.x-settledScale)<.00001,'Hidden vessel size converges without continuing to drift');
   Object.assign(viewport,{width:view.height,height:view.width});camera.aspect=viewport.width/viewport.height;camera.updateProjectionMatrix();effect.update(0);group.updateMatrixWorld(true);
   for(let i=0;i<position.count;i+=20){v.fromBufferAttribute(position,i).applyMatrix4(points.matrixWorld).project(camera);assert(Math.abs(v.x)<.98&&Math.abs(v.y)<.98,'Hidden UI orientation changes keep the entire formed vessel in view');}
   Object.assign(viewport,view);camera.aspect=view.width/view.height;camera.updateProjectionMatrix();uiHidden=false;effect.update(0);

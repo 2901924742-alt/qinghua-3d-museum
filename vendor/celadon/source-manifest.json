@@ -1,0 +1,33 @@
+{
+  "name": "Celadon CPU pottery algorithms",
+  "repository": "https://github.com/winchxyz/celadon",
+  "commit": "be0342639a28dd92a3ac3169206bede2e18a5116",
+  "license": "MIT (code only; no bundled fonts or audio)",
+  "changes": "None. These upstream source files and LICENSE are byte-identical. Museum integration is in enhancements/pottery-model.js.",
+  "files": [
+    {
+      "path": "LICENSE",
+      "size": 1762,
+      "git_blob_sha1": "41b62689c232695b30c3e68944b5ad83bd61ffc4",
+      "sha256": "74d37d68fb8947a1c3a315aff6fb19eb06b560a4c7971be946ade0449ed84852"
+    },
+    {
+      "path": "src/core/util.js",
+      "size": 7234,
+      "git_blob_sha1": "fd6927d41cf119dc2547ba2ca1f76988e9237f2e",
+      "sha256": "627b88571eb9602ed2d221a4d2704ac596789a8a47c2429e04d7fe49130a2ffe"
+    },
+    {
+      "path": "src/sim/clay.js",
+      "size": 54729,
+      "git_blob_sha1": "eb71916980d84f52ce1185cfcd92423e0f130b5a",
+      "sha256": "a616a3b1124ce28156c7e8cfb30e2945d506e59ae95c910e74d18c7f3f269d09"
+    },
+    {
+      "path": "src/sim/hand.js",
+      "size": 11218,
+      "git_blob_sha1": "f7a709a10ec9c029aa64071e36ba6ab947428f8b",
+      "sha256": "43a10f65c8ae51039dbde1cdd2ab9118267f5e41c54884258238d831c29e0b04"
+    }
+  ]
+}

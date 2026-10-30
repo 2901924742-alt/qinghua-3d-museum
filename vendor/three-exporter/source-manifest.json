@@ -1,0 +1,33 @@
+{
+  "name": "Official three.js r160 GLTF export modules",
+  "repository": "https://github.com/mrdoob/three.js",
+  "commit": "d04539a76736ff500cae883d6a38b3dd8643c548",
+  "tag": "r160",
+  "license": "MIT",
+  "files": [
+    {
+      "path": "examples/jsm/exporters/GLTFExporter.js",
+      "bytes": 77714,
+      "git_blob_sha1": "a9eb9ff00fb37cf2e581ca5d54d2ab8152be9cb9",
+      "sha256": "f8a6eb87719e68c925fdf445014b5ead49cf779ae14e69c6cc1cb1dd4eae514d"
+    },
+    {
+      "path": "examples/jsm/utils/TextureUtils.js",
+      "bytes": 2367,
+      "git_blob_sha1": "5954a246158fdc5af0adc321ae518e0e99de9bc5",
+      "sha256": "1b84a7fde8745dd614f62b6ca8108b592144278c07891a0cbe8cdf8e15796efa"
+    },
+    {
+      "path": "LICENSE",
+      "bytes": 1081,
+      "git_blob_sha1": "d07e209686512b9ac93d7df5481a4a6f622093e7",
+      "sha256": "852e0e8699169bf9f6fdc6bda3e682d078dcbc738b5d33e74df594721bff271d"
+    }
+  ],
+  "changes": "None. The two JavaScript files and LICENSE are byte-identical to the pinned upstream commit, with the original examples/jsm layout.",
+  "runtimeDependencies": [
+    "three (existing local engine via the site import map)",
+    "./../utils/TextureUtils.js (bundled at its original relative path)"
+  ],
+  "scope": "Loaded on demand only for export of original user-created vessels with owned ordinary CanvasTexture artwork. The integration rejects compressed/foreign texture inputs."
+}

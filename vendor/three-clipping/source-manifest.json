@@ -1,0 +1,25 @@
+{
+  "name": "Official Three r160 clipping stencil reference",
+  "repository": "https://github.com/mrdoob/three.js",
+  "commit": "d04539a76736ff500cae883d6a38b3dd8643c548",
+  "tag": "r160",
+  "license": "MIT",
+  "files": [
+    {
+      "path": "webgl_clipping_stencil.html.txt",
+      "upstreamPath": "examples/webgl_clipping_stencil.html",
+      "bytes": 8363,
+      "git_blob_sha1": "c6d15a6d8a71b6635bc745a293aad95215d986eb",
+      "sha256": "fc9c19e4fa2cd891f7fce007bddddf5a2eeb79296b62ecc1d673c027fdd977e4"
+    },
+    {
+      "path": "LICENSE",
+      "upstreamPath": "LICENSE",
+      "bytes": 1081,
+      "git_blob_sha1": "d07e209686512b9ac93d7df5481a4a6f622093e7",
+      "sha256": "852e0e8699169bf9f6fdc6bda3e682d078dcbc738b5d33e74df594721bff271d"
+    }
+  ],
+  "changes": "Reference HTML and LICENSE are byte-identical to upstream. HTML has a .txt suffix for inert documentation; it is never loaded or executed by the museum.",
+  "integration": "pottery-studio.js adapts only the two opposing stencil passes, NotEqual cap and clearStencil ordering. One horizontal plane; shared original geometry; quaternion orientation avoids horizontal lookAt degeneracy; owned materials/cap are disposed. No upstream GUI, controls, renderer or animation loop is copied."
+}

@@ -1,25 +1,25 @@
 const labels = {
   zh: {
     title: '四器对读', intro: '选择两件青花瓷，生成同视角对照图；切换纹饰与轮廓，比较口沿、肩颈和纹饰布局。',
-    first: '左侧展品', second: '右侧展品', angle: '共同视角', front: '正面', side: '侧面', texture: '看纹饰', silhouette: '看轮廓', generate: '生成对照', retry: '重新对照',
+    first: '左侧展品', second: '右侧展品', angle: '共同视角', front: '正面', side: '侧面', texture: '看纹饰', silhouette: '看轮廓', overlay: '叠影比形', blend: '叠影比例', overlayLabel: '归一化叠影', sourceLabel: '来源', unverified: '原件与来源未核实', generate: '生成对照', retry: '重新对照',
     choose: '选择两件不同的展品，再生成对照。', same: '请选择两件不同的展品。', preparing: (n, name) => `正在准备 ${n}/2：${name}…`, ready: '对照已生成。可切换轮廓与纹饰，或保存对照图。',
     failed: '对照暂时生成失败；当前展馆不受影响，请重试。', timeout: '准备快照超时，请检查网络并重新对照。', unavailable: '展品对照暂不可用，仍可返回展馆观察模型。',
     normalized: '两件展品按统一显示高度排列，仅比较形态与纹饰，不代表文物的实际大小或比例。',
     reconstruction: '缺失的内部结构与纹饰为展示性重建，非实测；本对照不能作为年代、真伪或尺寸鉴定依据。',
     clues: '观察线索：', metadata: '展品资料与来源', unknown: '本数字模型的原件、年代、实物尺寸、收藏出处和最初制作来源尚未核实。', source: '查看馆方原始资料',
     export: '生成对照 PNG', exporting: '正在生成对照图片…', save: '保存对照 PNG', exportReady: '对照图片已生成；手机也可长按图片保存。', exportError: '图片生成失败，请重试。',
-    alt: '两件青花瓷的归一化对照图', caption: '天传数字博物馆 · 四器对读', mode: '对照方式', image: '实际模型快照'
+    alt: '两件青花瓷的归一化对照图', caption: '天传数字博物馆 · 四器对读', mode: '对照方式', image: '实际模型快照', view: '回展馆细看'
   },
   en: {
     title: 'Compare the vessels', intro: 'Choose two vessels and compare their rims, shoulders and decoration in matching snapshots. Switch decoration and silhouette, or save the comparison.',
-    first: 'Left exhibit', second: 'Right exhibit', angle: 'Shared viewpoint', front: 'Front', side: 'Side', texture: 'Decoration', silhouette: 'Silhouette', generate: 'Create comparison', retry: 'Try comparison again',
+    first: 'Left exhibit', second: 'Right exhibit', angle: 'Shared viewpoint', front: 'Front', side: 'Side', texture: 'Decoration', silhouette: 'Silhouette', overlay: 'Overlay', blend: 'Overlay blend', overlayLabel: 'Normalized overlay', sourceLabel: 'Source', unverified: 'Original object and source not verified', generate: 'Create comparison', retry: 'Try comparison again',
     choose: 'Choose two different exhibits, then create the comparison.', same: 'Choose two different exhibits.', preparing: (n, name) => `Preparing ${n}/2: ${name}…`, ready: 'Comparison ready. Switch between decoration and silhouette, or save the image.',
     failed: 'The comparison could not be prepared. The museum remains available; please retry.', timeout: 'Snapshot preparation timed out. Check the connection and retry.', unavailable: 'Comparison is unavailable. You can still return to the museum to inspect the models.',
     normalized: 'Both exhibits use a common display height for shape and decoration comparison. This is not their actual size or physical scale.',
     reconstruction: 'Missing interior shape and decoration are display reconstructions, not measurements. This comparison is not evidence for dating, authenticity or dimensions.',
     clues: 'Look for: ', metadata: 'Object information and sources', unknown: 'The original object, date, physical dimensions, collection and initial model-making source of this digital model have not been verified.', source: 'Open the museum source',
     export: 'Create comparison PNG', exporting: 'Creating comparison image…', save: 'Save comparison PNG', exportReady: 'Image ready. On mobile, hold the preview to save it.', exportError: 'The image could not be generated. Please retry.',
-    alt: 'Normalized comparison of two blue-and-white porcelain vessels', caption: 'Tianchuan Digital Museum · Vessel comparison', mode: 'Comparison mode', image: 'Actual model snapshot'
+    alt: 'Normalized comparison of two blue-and-white porcelain vessels', caption: 'Tianchuan Digital Museum · Vessel comparison', mode: 'Comparison mode', image: 'Actual model snapshot', view: 'View in museum'
   }
 };
 
@@ -39,7 +39,7 @@ function release(canvas) {
   if (canvas) { canvas.width = 0; canvas.height = 0; }
 }
 
-export function mountCompare(container, {language = 'zh', exhibits = [], captureExhibit} = {}) {
+export function mountCompare(container, {language = 'zh', exhibits = [], captureExhibit, getExhibitIndex, onViewExhibit} = {}) {
   const lang = language === 'en' ? 'en' : 'zh', t = labels[lang];
   const section = element('section', 'innovation-compare');
   section.append(element('h3', '', t.title), element('p', 'innovation-intro', t.intro));
@@ -49,9 +49,11 @@ export function mountCompare(container, {language = 'zh', exhibits = [], capture
     return {dispose() { section.remove(); }};
   }
 
-  let disposed = false, generation = 0, controller = null, pair = null, angle = 0, mode = 'texture', exportURL = null;
+  let disposed = false, paused = false, generation = 0, controller = null, pair = null, angle = 0, mode = 'texture', exportURL = null, exportRevision = 0, exporting = false;
   const listeners = [];
   const listen = (node, type, fn) => { node.addEventListener(type, fn); listeners.push(() => node.removeEventListener(type, fn)); };
+  let initialIndex = typeof getExhibitIndex === 'function' ? getExhibitIndex() : 0;
+  if (!Number.isInteger(initialIndex) || initialIndex < 0 || initialIndex >= exhibits.length) initialIndex = 0;
   const controls = element('div', 'innovation-compare-controls');
   const selects = [t.first, t.second].map((label, slot) => {
     const wrapper = element('label', 'innovation-compare-field', label);
@@ -60,7 +62,7 @@ export function mountCompare(container, {language = 'zh', exhibits = [], capture
       const option = element('option', '', exhibit[lang]?.exhibit || exhibit.zh?.exhibit || exhibit.id);
       option.value = String(index); select.append(option);
     });
-    select.value = String(slot); wrapper.append(select); controls.append(wrapper); return select;
+    select.value = String((initialIndex + slot) % exhibits.length); wrapper.append(select); controls.append(wrapper); return select;
   });
   const angleLabel = element('label', 'innovation-compare-field', t.angle);
   const angleSelect = element('select');
@@ -69,33 +71,68 @@ export function mountCompare(container, {language = 'zh', exhibits = [], capture
   const generate = element('button', 'innovation-compare-generate', t.generate); generate.type = 'button';
   controls.append(angleLabel, generate); section.append(controls);
   const modeBar = element('div', 'innovation-compare-modes'); modeBar.setAttribute('role', 'group'); modeBar.setAttribute('aria-label', t.mode);
-  const modeButtons = ['texture', 'silhouette'].map(value => {
-    const button = element('button', '', value === 'texture' ? t.texture : t.silhouette); button.type = 'button';
+  const modeValues = ['texture', 'silhouette', 'overlay'];
+  const modeButtons = modeValues.map(value => {
+    const button = element('button', '', t[value]); button.type = 'button';
     button.setAttribute('aria-pressed', String(mode === value)); modeBar.append(button);
     listen(button, 'click', () => {
-      mode = value; modeButtons.forEach((item, index) => item.setAttribute('aria-pressed', String((index === 0 ? 'texture' : 'silhouette') === mode)));
-      if (pair) pair.forEach(item => { item.canvas.style.filter = mode === 'silhouette' ? 'brightness(0) invert(1)' : ''; });
-      clearExport();
+      mode = value; modeButtons.forEach((item, index) => item.setAttribute('aria-pressed', String(modeValues[index] === mode)));
+      applyMode(); clearExport(); if (pair) status.textContent = t.ready;
     });
     return button;
   });
   section.append(modeBar);
+  const overlayStage = element('div', 'innovation-compare-overlay'); overlayStage.hidden = true; overlayStage.setAttribute('role', 'group');
+  const blendControls = element('div', 'innovation-compare-blend'); blendControls.hidden = true;
+  const blendNames = element('p', 'innovation-note'), blendLabel = element('label', 'innovation-compare-field', t.blend), blendInput = element('input'), blendOutput = element('output');
+  blendInput.type = 'range'; blendInput.min = '0'; blendInput.max = '100'; blendInput.step = '1'; blendInput.value = '50'; blendInput.dataset.control = 'overlayBlend'; blendInput.disabled = true;
+  blendLabel.append(blendInput); blendControls.append(blendNames, blendLabel, blendOutput); section.append(blendControls);
   const status = element('p', 'innovation-status', t.choose); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
   const results = element('div', 'innovation-compare-results'); results.setAttribute('aria-busy', 'false'); results.tabIndex = -1;
   results.setAttribute('role', 'group'); results.setAttribute('aria-label', t.title);
+  listen(results, 'click', event => {
+    const button = event.target.closest('button[data-view-exhibit]');
+    if (disposed || !button || !results.contains(button) || typeof onViewExhibit !== 'function') return;
+    const index = Number(button.dataset.viewExhibit);
+    if (!Number.isInteger(index) || index < 0 || index >= exhibits.length || !pair?.some(item => item.index === index)) return;
+    onViewExhibit(index);
+  });
   const note = element('p', 'innovation-note', t.normalized);
   const reconstruction = element('p', 'innovation-note', t.reconstruction);
   const exportButton = element('button', 'innovation-compare-export', t.export); exportButton.type = 'button'; exportButton.disabled = true;
   const exportArea = element('div', 'innovation-compare-download');
   section.append(status, results, note, reconstruction, exportButton, exportArea);
 
+  function exhibitName(item) { const exhibit = exhibits[item.index]; return exhibit[lang]?.exhibit || exhibit.zh?.exhibit || exhibit.id; }
+  function blendValue() { return Math.max(0, Math.min(100, Number(blendInput.value) || 0)); }
+  function applyMode() {
+    const overlay = !!pair && mode === 'overlay', value = blendValue();
+    blendControls.hidden = !overlay; blendInput.disabled = !overlay; overlayStage.hidden = !overlay;
+    if (!pair) { overlayStage.replaceChildren(); overlayStage.remove(); return; }
+    pair.forEach((item, slot) => {
+      item.canvas.style.filter = mode === 'silhouette' ? 'brightness(0) invert(1)' : '';
+      item.canvas.style.opacity = String(overlay ? (slot ? value / 100 : 1 - value / 100) : 1);
+      if (overlay) overlayStage.append(item.canvas);
+      else if (item.canvas.parentNode === overlayStage) item.card.insertBefore(item.canvas, item.heading.nextSibling);
+    });
+    if (overlay) {
+      results.insertBefore(overlayStage, results.firstChild);
+      const names = pair.map(exhibitName), description = `A ${names[0]} · B ${names[1]}`;
+      overlayStage.setAttribute('aria-label', `${t.overlayLabel}: ${description}`); blendNames.textContent = description;
+      blendOutput.textContent = `A ${100 - value}% · B ${value}%`;
+      blendInput.setAttribute('aria-valuetext', `A ${names[0]} ${100 - value}%, B ${names[1]} ${value}%`);
+    } else overlayStage.remove();
+  }
+  listen(blendInput, 'input', () => { if (!pair || mode !== 'overlay') return; applyMode(); clearExport(); status.textContent = t.ready; });
   function clearExport() {
+    exportRevision++;
     if (exportURL) URL.revokeObjectURL(exportURL);
     exportURL = null; exportArea.replaceChildren();
   }
   function clearPair() {
     if (pair) pair.forEach(item => release(item.canvas));
-    pair = null; results.replaceChildren(); exportButton.disabled = true; clearExport();
+    pair = null; overlayStage.replaceChildren(); overlayStage.remove(); overlayStage.hidden = true; blendControls.hidden = true; blendInput.disabled = true;
+    results.replaceChildren(); exportButton.disabled = true; clearExport();
   }
   function reset() {
     generation++; controller?.abort(); controller = null; clearPair();
@@ -128,10 +165,13 @@ export function mountCompare(container, {language = 'zh', exhibits = [], capture
   function addCard(item) {
     const exhibit = exhibits[item.index], info = exhibit[lang] || exhibit.zh || {};
     const card = element('article', 'innovation-compare-card');
-    card.append(element('h4', '', info.exhibit || exhibit.id));
+    item.card = card; item.heading = element('h4', '', info.exhibit || exhibit.id); card.append(item.heading);
     item.canvas.setAttribute('role', 'img'); item.canvas.setAttribute('aria-label', `${t.image}: ${info.exhibit || exhibit.id}`);
     item.canvas.className = 'innovation-compare-snapshot'; item.canvas.style.filter = mode === 'silhouette' ? 'brightness(0) invert(1)' : '';
     card.append(item.canvas);
+    if (typeof onViewExhibit === 'function') {
+      const view = element('button', 'innovation-compare-view', t.view); view.type = 'button'; view.dataset.viewExhibit = String(item.index); card.append(view);
+    }
     const clues = exhibit.hotspots?.map(hotspot => hotspot[lang]?.[0]).filter(Boolean);
     if (clues?.length) card.append(element('p', 'innovation-compare-clues', t.clues + clues.join(' · ')));
     const details = element('details', 'innovation-compare-metadata'); details.append(element('summary', '', t.metadata));
@@ -147,6 +187,7 @@ export function mountCompare(container, {language = 'zh', exhibits = [], capture
     card.append(details); results.append(card);
   }
   async function start() {
+    if (disposed || paused) return;
     reset();
     const indices = selects.map(select => Number(select.value));
     if (generate.disabled || indices.some(index => !Number.isInteger(index) || index < 0 || index >= exhibits.length)) return;
@@ -158,7 +199,7 @@ export function mountCompare(container, {language = 'zh', exhibits = [], capture
         pending.push({index, canvas: await capture(index, current.signal, token)});
         if (disposed || token !== generation || current.signal.aborted) return;
       }
-      pair = pending.splice(0); pair.forEach(addCard); exportButton.disabled = false; status.textContent = t.ready;
+      pair = pending.splice(0); pair.forEach(addCard); applyMode(); exportButton.disabled = exporting; status.textContent = t.ready;
       try {
         results.focus?.({preventScroll: true});
         const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -183,16 +224,31 @@ export function mountCompare(container, {language = 'zh', exhibits = [], capture
     return y + lineHeight;
   }
   async function exportPNG() {
-    if (!pair || disposed) return;
-    const token = generation, snapshots = pair, currentMode = mode;
-    exportButton.disabled = true; status.textContent = t.exporting; clearExport();
-    const canvas = element('canvas'); canvas.width = 1600; canvas.height = 1510;
-    const ctx = canvas.getContext('2d'), silhouette = element('canvas');
+    if (!pair || disposed || paused || exporting) return;
+    clearExport();
+    const token = generation, revision = exportRevision, snapshots = pair, currentMode = mode, currentBlend = blendValue();
+    exporting = true; exportButton.disabled = true; status.textContent = t.exporting;
+    let canvas = null, silhouette = null;
     try {
+      canvas = element('canvas'); canvas.width = 1600; canvas.height = currentMode === 'overlay' ? 1700 : 1510;
+      const ctx = canvas.getContext('2d'); silhouette = currentMode === 'overlay' ? null : element('canvas');
       if (!ctx) throw new Error('Canvas unavailable');
       ctx.fillStyle = '#061123'; ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.font = 'bold 40px "Microsoft YaHei", sans-serif'; ctx.fillStyle = '#e9f1ff'; ctx.fillText(t.caption, 48, 70);
-      ctx.font = '23px "Microsoft YaHei", sans-serif'; ctx.fillStyle = '#a9c8ef'; ctx.fillText(`${angle === 0 ? t.front : t.side} · ${currentMode === 'texture' ? t.texture : t.silhouette}`, 48, 112);
+      ctx.font = '23px "Microsoft YaHei", sans-serif'; ctx.fillStyle = '#a9c8ef'; ctx.fillText(`${angle === 0 ? t.front : t.side} · ${t[currentMode]}${currentMode === 'overlay' ? ` · A ${100 - currentBlend}% / B ${currentBlend}%` : ''}`, 48, 112);
+      if (currentMode === 'overlay') {
+        ctx.fillStyle = '#0b1b32'; ctx.fillRect(440, 165, 720, 900); ctx.globalCompositeOperation = 'source-over';
+        snapshots.forEach((item, slot) => { ctx.globalAlpha = slot ? currentBlend / 100 : 1 - currentBlend / 100; ctx.drawImage(item.canvas, 440, 165, 720, 900); }); ctx.globalAlpha = 1;
+        snapshots.forEach((item, slot) => {
+          const x = 48 + slot * 784; ctx.font = 'bold 27px "Microsoft YaHei", sans-serif'; ctx.fillStyle = '#e9f1ff';
+          const bottom = wrap(ctx, `${slot ? 'B' : 'A'} · ${exhibitName(item)}`, x, 1150, 720, 38);
+          let source = t.unverified; const record = exhibits[item.index].source;
+          try { const url = new URL(record?.[1]); if (url.protocol === 'https:') source = `${record[0] || url.hostname} · ${url.hostname}`; } catch { /* Unknown sources stay explicitly unverified. */ }
+          ctx.font = '22px "Microsoft YaHei", sans-serif'; ctx.fillStyle = '#b9cce5'; wrap(ctx, `${t.sourceLabel}: ${source}`, x, bottom + 12, 720, 32);
+        });
+        ctx.font = '23px "Microsoft YaHei", sans-serif'; ctx.fillStyle = '#c2d2e8';
+        const bottom = wrap(ctx, t.normalized, 48, 1450, 1504, 34); wrap(ctx, t.reconstruction, 48, bottom + 10, 1504, 34);
+      } else {
       snapshots.forEach((item, slot) => {
         const x = 44 + slot * 780, image = item.canvas;
         ctx.fillStyle = '#0b1b32'; ctx.fillRect(x, 145, 732, 1135);
@@ -211,21 +267,28 @@ export function mountCompare(container, {language = 'zh', exhibits = [], capture
       });
       ctx.font = '23px "Microsoft YaHei", sans-serif'; ctx.fillStyle = '#c2d2e8';
       const bottom = wrap(ctx, t.normalized, 48, 1330, 1504, 34); wrap(ctx, t.reconstruction, 48, bottom + 10, 1504, 34);
+      }
       const blob = await new Promise((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('PNG encoding failed')), 'image/png'));
-      if (disposed || token !== generation || currentMode !== mode) return;
+      if (disposed || token !== generation || revision !== exportRevision) return;
       exportURL = URL.createObjectURL(blob);
       const download = element('a', 'download', t.save); download.href = exportURL; download.download = 'qinghua-vessel-comparison.png';
       const preview = element('img'); preview.src = exportURL; preview.alt = t.alt; preview.loading = 'lazy';
       exportArea.append(download, preview); status.textContent = t.exportReady;
     } catch {
-      if (!disposed && token === generation) status.textContent = t.exportError;
+      if (!disposed && token === generation && revision === exportRevision) status.textContent = t.exportError;
     } finally {
       release(canvas); release(silhouette);
-      if (!disposed && token === generation && pair) exportButton.disabled = false;
+      exporting = false; if (!disposed) exportButton.disabled = !pair;
     }
   }
   listen(exportButton, 'click', exportPNG);
   return {
+    suspend() {
+      if (disposed || paused) return; paused = true; generation++; controller?.abort(); controller = null; exportRevision++;
+      results.setAttribute('aria-busy', 'false'); generate.disabled = selects[0].value === selects[1].value;
+      status.textContent = pair ? t.ready : generate.disabled ? t.same : t.choose;
+    },
+    resume() { if (!disposed) paused = false; },
     dispose() {
       if (disposed) return; disposed = true; generation++; controller?.abort(); controller = null;
       listeners.forEach(remove => remove()); clearPair(); section.remove();

@@ -538,15 +538,18 @@ async function bakeDesktopStarColors(texture) {
         linear[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
     }
     const cache = new Map();
+    let previousKey=-1,previousMapped=0;
+    const chunkSize=canvas.width*64*4;
     const fit = x => (x * (x + 0.0245786) - 0.000090537) / (x * (0.983729 * x + 0.432951) + 0.238081);
     const encode = x => {
         x = Math.max(0, Math.min(1, x));
         return Math.round(255 * (x <= 0.0031308 ? x * 12.92 : 1.055 * Math.pow(x, 1 / 2.4) - 0.055));
     };
-    for (let i = 0; i < data.length; i += 4) {
-        if(i && i%(canvas.width*64*4)===0)await new Promise(requestAnimationFrame);
+    for(let start=0;start<data.length;start+=chunkSize){
+        if(start)await new Promise(requestAnimationFrame);
+        for(let i=start,end=Math.min(data.length,start+chunkSize);i<end;i+=4){
         const key = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
-        let mapped = cache.get(key);
+        let mapped = key===previousKey?previousMapped:cache.get(key);
         if (mapped === undefined) {
             const r = linear[data[i]] * renderer.toneMappingExposure / 0.6;
             const g = linear[data[i + 1]] * renderer.toneMappingExposure / 0.6;
@@ -559,9 +562,11 @@ async function bakeDesktopStarColors(texture) {
                 | encode(-0.00327 * x - 0.07276 * y + 1.07602 * z);
             cache.set(key, mapped);
         }
+        previousKey=key;previousMapped=mapped;
         data[i] = (mapped >>> 16) & 255;
         data[i + 1] = (mapped >>> 8) & 255;
         data[i + 2] = mapped & 255;
+    }
     }
     ctx.putImageData(pixels, 0, 0);
     texture.colorSpace = THREE.NoColorSpace;
@@ -1231,10 +1236,14 @@ function restoreInfo() {
 }
 hideBtn.addEventListener('click', () => { hideInfo(); restoreBtn.focus({preventScroll:true}); });
 let startY = 0;
-infoBox.addEventListener("touchstart",(e)=>{ startY = e.touches[0].clientY; });
+let infoTouchStartedAtEnd = true;
+infoBox.addEventListener("touchstart",(e)=>{
+    startY = e.touches[0].clientY;
+    infoTouchStartedAtEnd = infoBox.scrollTop + infoBox.clientHeight >= infoBox.scrollHeight - 2;
+});
 infoBox.addEventListener("touchmove",(e)=>{
     let diff = e.touches[0].clientY - startY;
-    if(diff < -80){
+    if(diff < -80 && infoTouchStartedAtEnd){
         hideInfo();
     }
 });

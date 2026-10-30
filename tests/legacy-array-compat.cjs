@@ -21,10 +21,14 @@ function checkFocus(source, name) {
     const document = {activeElement: null}, nodes = ['first', 'middle', 'last'].map(id => ({
         id, hidden: false, getClientRects: () => [1], focus() {document.activeElement = this;}
     }));
-    const surface = {querySelectorAll: () => nodes};
+    const surface = {
+        open: true, querySelectorAll: () => nodes,
+        contains: node => node === surface || nodes.includes(node),
+        focus() {document.activeElement = this;}
+    };
     const showUI = {focus() {document.activeElement = this;}};
     const context = legacy({document, dialog: surface, dock: surface, mode: true, uiHidden: false, showUI,
-        close() {}, listen(target, type, fn) {assert.equal(type, 'keydown'); onKey = fn;}});
+        close() {}, listen(target, type, fn) {assert.equal(target, document); assert.equal(type, 'keydown'); onKey = fn;}});
     vm.runInContext(source, context);
     function press(node, shiftKey = false, key = 'Tab') {
         document.activeElement = node; prevented = 0;
@@ -34,11 +38,28 @@ function checkFocus(source, name) {
     press(nodes[0], true); assert.equal(document.activeElement, nodes[2]); assert.equal(prevented, 1);
     press(nodes[1]); assert.equal(document.activeElement, nodes[1]); assert.equal(prevented, 0);
     press(nodes[0], false, 'ArrowRight'); assert.equal(document.activeElement, nodes[0]); assert.equal(prevented, 0);
+    if (name === 'Knowledge dialog') {
+        const outside = {id: 'outside'};
+        surface.open = false;
+        for (const [node, shift] of [[nodes[2], false], [nodes[0], true], [outside, false], [outside, true]]) {
+            press(node, shift); assert.equal(document.activeElement, node); assert.equal(prevented, 0);
+        }
+        surface.open = true;
+        press(outside); assert.equal(document.activeElement, nodes[0]); assert.equal(prevented, 1);
+        press(outside, true); assert.equal(document.activeElement, nodes[2]); assert.equal(prevented, 1);
+    }
     nodes.splice(1);
     for (const shift of [false, true]) {press(nodes[0], shift); assert.equal(document.activeElement, nodes[0]); assert.equal(prevented, 1);}
     if (name === 'Gesture dock') {
         context.uiHidden = true;
         for (const shift of [false, true]) {press(showUI, shift); assert.equal(document.activeElement, showUI); assert.equal(prevented, 1);}
+    }
+    if (name === 'Knowledge dialog') {
+        nodes[0].hidden = true;
+        for (const shift of [false, true]) {press(nodes[0], shift); assert.equal(document.activeElement, surface); assert.equal(prevented, 1);}
+        nodes.length = 0;
+        for (const shift of [false, true]) {press(null, shift); assert.equal(document.activeElement, surface); assert.equal(prevented, 1);}
+        console.log('Knowledge dialog: closed dialog leaves keys alone, external focus returns in both directions, hidden/empty targets fall back to dialog');
     }
     console.log(`${name}: forward/reverse focus wrap, middle keys and one control pass without Array.at`);
 }
@@ -61,6 +82,6 @@ function checkFocus(source, name) {
         geometry.dispose();
     }
     console.log('All four actual interior geometries build without Array.at');
-    checkFocus(handler(read('ui.js'), "listen(dialog,'keydown'", "listen(dialog,'click'"), 'Knowledge dialog');
+    checkFocus(handler(read('ui.js'), "listen(document,'keydown'", "listen(dialog,'click'"), 'Knowledge dialog');
     checkFocus(handler(read('gesture-experience.js'), "listen(document,'keydown'", ' const canvas=renderer.domElement;'), 'Gesture dock');
 })().catch(error => {console.error(error); process.exitCode = 1;});

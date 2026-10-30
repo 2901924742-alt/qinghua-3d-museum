@@ -10,8 +10,8 @@ export function createUI(core) {
  let language='zh'; try { if(localStorage.getItem('museum-language')==='en') language='en'; } catch {}
  let panel=null, saved=null, tab='details', selected=0, hotspotsOn=false, previewURL=null, captured=null, unwrapCanvas=null, exportToken=0;
  let loadingProgress=null, loadingError=window.museumLoadErrorKey || null, viewing=false;
- let studio=null,studioToken=0;
- function disposeStudio(){studioToken++;studio?.dispose();studio=null;document.getElementById('museumDialog')?.classList.remove('innovation-wide');}
+ let studio=null,studioHost=null,studioToken=0,studioSuspension=null,uiDisposed=false;
+ function disposeStudio(){studioToken++;studioSuspension=null;studio?.dispose();studio=null;studioHost?.remove();studioHost=null;document.getElementById('museumDialog')?.classList.remove('innovation-wide');}
  let exhibit=exhibits[0],hotspots=exhibit.hotspots,currentIndex=0,pendingIndex=0,switchState='idle';
  const t = (key,...args) => {const value=exhibit[language][key]??copy[language][key];return typeof value==='function'?value(...args):value;};
  const gallery=document.createElement('nav');gallery.className='museum-gallery';gallery.id='museumGallery';
@@ -40,7 +40,7 @@ export function createUI(core) {
   tools.setAttribute('aria-label',language==='zh'?'展馆工具':'Museum tools');
   ['museumGesture','menuGesture'].forEach(id=>{$(id).textContent=language==='zh'?'手势粒子':'Hand particles';});
   buttons.forEach((b,i)=>{b.setAttribute('aria-label',hotspots[i][language][0]);b.querySelector('span').textContent=hotspots[i][language][0];});
-  updateGallery();updateLoading();if(panel) renderPanel();
+  updateGallery();updateLoading();if(panel&&!studioSuspension) renderPanel();
  }
  function updateGallery(){
   gallery.dataset.exhibit=exhibit.id;
@@ -85,25 +85,49 @@ export function createUI(core) {
   if(saved.focus?.isConnected)saved.focus.focus({preventScroll:true});saved=null;
   if(previewURL)URL.revokeObjectURL(previewURL);previewURL=null;captured=null;$('museumPanelContent').replaceChildren();
  }
+ function viewExhibit(index){
+  if(!Number.isInteger(index)||index<0||index>=exhibits.length)return;
+  const direction=index-currentIndex;close();
+  if(direction!==0)core.switchExhibit(direction);
+ }
+ function openStudioExperience(openExperience){
+  if(!studio||studioSuspension||panel!=='explore'||tab!=='studio'||core.gestureActive?.())return;
+  const origin=studio,token=studioToken,session={origin,token};studioSuspension=session;
+  origin.suspend?.();dialog.close();document.body.classList.remove('museum-panel-open');
+  const onReturn=reason=>{
+   if(studioSuspension!==session)return;
+   studioSuspension=null;
+   if(uiDisposed||reason!=='return'||studio!==origin||studioToken!==token||panel!=='explore'||tab!=='studio'){close();return;}
+   document.body.classList.add('museum-panel-open');dialog.showModal();origin.resume?.();
+  };
+  try{const pending=openExperience({onReturn});pending?.then?.(started=>{if(started===false)onReturn('return');},()=>onReturn('return'));}
+  catch(error){console.warn('Museum child experience unavailable:',error);onReturn('return');}
+ }
  function sourcesHTML(){return `<p class="note">${t('sourceLabel')}: ${[...(exhibit.source?[exhibit.source]:[]),...sources].map(([label,url])=>`<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`).join(' · ')}</p>`;}
  function renderPanel(){
-  disposeStudio();
+  if(panel==='explore'){
+   // Keep this dialog's workshop session; only its active route may render a preview.
+   if(studio){studio.suspend();studioHost.remove();}else{studioToken++;studioHost=null;}
+   dialog.classList.remove('innovation-wide');
+  }else disposeStudio();
   $('museumPanelTitle').textContent=t(panel==='explore'?'explore':'export');label('museumClose','close');
   const content=$('museumPanelContent');
   if(panel==='explore') {
    content.innerHTML=`<div class="museum-tabs">${['details','unwrap','craft','studio'].map(k=>`<button type="button" data-tab="${k}" aria-pressed="${tab===k}">${t(k)}</button>`).join('')}</div><div id="museumKnowledge"></div>`;
-   content.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{tab=b.dataset.tab;renderPanel();content.querySelector(`[data-tab="${tab}"]`).focus();}));
+   content.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{tab=b.dataset.tab;renderPanel();content.querySelector(`[data-tab="${tab}"]`).focus({preventScroll:true});}));
    const knowledge=$('museumKnowledge');
    if(tab==='details') {
     knowledge.innerHTML=`<p>${t('exploreIntro')}</p><div class="museum-tabs">${hotspots.map((h,i)=>`<button type="button" data-detail="${i}" aria-pressed="${selected===i}">${h[language][0]}</button>`).join('')}</div><h3>${hotspots[selected][language][0]}</h3><p>${hotspots[selected][language][1]}</p><button id="toggleHotspots" type="button">${t(hotspotsOn?'hotspotOff':'hotspotHint')}</button><p class="note">${t('scope')}</p><p class="note">${language==='zh'?'缺失内腔及其青花纹饰为展示性重建；纹饰借用原模型外壁图案，并非原件内壁记录。厚度与内底形态未经实测，不作为文物结构依据。':'The missing cavity and its blue decoration are display reconstructions. Motifs are adapted from the model’s exterior, not records of the original interior. Wall thickness and floor shape are not measured.'}</p>`+sourcesHTML();
     knowledge.querySelectorAll('[data-detail]').forEach(b=>b.addEventListener('click',()=>{selected=+b.dataset.detail;renderPanel();$('museumPanelContent').querySelector(`[data-detail="${selected}"]`).focus();}));
     $('toggleHotspots').onclick=()=>{hotspotsOn=!hotspotsOn;layer.hidden=!hotspotsOn;close();};
    } else if(tab==='studio') {
-    dialog.classList.add('innovation-wide');const token=studioToken;
+    dialog.classList.add('innovation-wide');
+    if(studio){knowledge.replaceWith(studioHost);studio.resume();return;}
+    studioHost=knowledge;const token=studioToken;
     knowledge.innerHTML=`<p role="status">${language==='zh'?'正在打开创意工坊…':'Opening the creative workshop…'}</p>`;
     import('./innovation-studio.js').then(({mountStudio})=>{
      if(token!==studioToken||panel!=='explore'||tab!=='studio')return;
-     studio=mountStudio(knowledge,{language,exhibits,getStudioRenderer:core.getStudioRenderer,openBloom:()=>{close();core.openBloom();}});
+     studio=mountStudio(knowledge,{language,exhibits,getStudioRenderer:core.getStudioRenderer,getExhibitIndex:()=>currentIndex,onViewExhibit:viewExhibit,openBloom:()=>openStudioExperience(core.openBloom),openScan:()=>openStudioExperience(core.openScan)});
     }).catch(error=>{if(token!==studioToken)return;console.warn('Museum workshop unavailable:',error);knowledge.textContent=language==='zh'?'创意工坊暂不可用，可继续观展。':'The workshop is unavailable. You can continue viewing the museum.';});
    } else if(tab==='craft') {
     knowledge.innerHTML=steps.map((step,i)=>`<article class="craft-step"><h3>${String(i+1).padStart(2,'0')} · ${step[language][0]}</h3><p>${step[language][1]}</p></article>`).join('')+`<p class="note">${t('craftNote')}</p>`+sourcesHTML();
@@ -164,7 +188,7 @@ export function createUI(core) {
    $('exportStatus').textContent='';
   }catch{if(token===exportToken&&panel==='export')$('exportStatus').textContent=t('exportError');}
  }
- $('museumLanguage').onclick=()=>{closeMenu();core.cancelIntro();language=language==='zh'?'en':'zh';try{localStorage.setItem('museum-language',language);}catch{}translate();};
+ $('museumLanguage').onclick=()=>{closeMenu();core.cancelIntro();disposeStudio();language=language==='zh'?'en':'zh';try{localStorage.setItem('museum-language',language);}catch{}translate();};
  $('museumMore').onclick=()=>{if(!menu.hidden){closeMenu();return;}menu.hidden=false;$('museumMore').setAttribute('aria-expanded','true');$('menuExplore').focus({preventScroll:true});};
  ['museumExplore','menuExplore'].forEach(id=>{$(id).onclick=()=>{tab='details';open('explore');};});
  ['museumExport','menuExport'].forEach(id=>{$(id).onclick=()=>open('export');});
@@ -172,18 +196,18 @@ export function createUI(core) {
  $('museumClose').onclick=close;listen(dialog,'cancel',e=>{e.preventDefault();close();});
  listen(viewButton,'click',startViewing);
  listen(returnButton,'click',stopViewing);
- listen(dialog,'keydown',e=>{if(e.key!=='Tab')return;const focusable=[...dialog.querySelectorAll('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])')].filter(el=>el.getClientRects().length&&!el.hidden);const first=focusable[0],last=focusable[focusable.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}});
+ listen(document,'keydown',e=>{if(!dialog.open||e.key!=='Tab')return;const focusable=[...dialog.querySelectorAll('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])')].filter(el=>el.getClientRects().length&&!el.hidden);const first=focusable[0],last=focusable[focusable.length-1];if(!first){e.preventDefault();dialog.focus();return;}if(!dialog.contains(document.activeElement)){e.preventDefault();(e.shiftKey?last:first).focus();return;}if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}});
  listen(dialog,'click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close();}});
  listen(document,'pointerdown',e=>{if(!menu.contains(e.target)&&!tools.contains(e.target))closeMenu();});
  listen(document,'keydown',e=>{if(e.key==='Escape'){stopViewing();if(!menu.hidden){closeMenu();$('museumMore').focus();}}});
  listen(matchMedia('(max-width:900px)'),'change',closeMenu);
  const api={t,translate,get language(){return language;},get panel(){return panel;},get hotspotsOn(){return hotspotsOn&&!viewing&&!core.gestureActive?.();},buttons,
-  setExhibit(index){stopViewing();close();exportToken++;captured=unwrapCanvas=null;currentIndex=index;exhibit=exhibits[index];hotspots=exhibit.hotspots;selected=0;buttons.forEach(b=>b.hidden=true);translate();},
+  setExhibit(index){stopViewing();if(!studioSuspension)close();exportToken++;captured=unwrapCanvas=null;currentIndex=index;exhibit=exhibits[index];hotspots=exhibit.hotspots;selected=0;buttons.forEach(b=>b.hidden=true);translate();},
   galleryState(index,target,state){currentIndex=index;pendingIndex=target;switchState=state;updateGallery();},
   loading(loaded,total){loadingProgress=total>0?Math.min(100,Math.max(0,Math.round(loaded/total*100))):null;updateLoading();},
   loadError(key){loadingError=key;$('loading').classList.add('failed');updateLoading();},
   close,hideHotspots(){hotspotsOn=false;layer.hidden=true;},
-  dispose(){stopViewing();close();lifetime.abort();exportToken++;if(previewURL)URL.revokeObjectURL(previewURL);captured=unwrapCanvas=null;nodes.forEach(node=>node.remove());}
+  dispose(){uiDisposed=true;stopViewing();close();lifetime.abort();exportToken++;if(previewURL)URL.revokeObjectURL(previewURL);captured=unwrapCanvas=null;nodes.forEach(node=>node.remove());}
  };
  translate();return api;
  } catch(error) {lifetime.abort();nodes.forEach(node=>node.remove());throw error;}
