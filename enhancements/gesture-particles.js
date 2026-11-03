@@ -313,9 +313,12 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
     });
     if(token!==generation)return state;status('camera');pump();return 'camera';
     function schedule(delay){clearTimeout(loopTimer);loopTimer=setTimeout(()=>{loopTimer=0;pump();},delay);}
+    function watchFrame(){clearTimeout(frameTimer);frameTimer=setTimeout(()=>{if(token===generation)stopCamera('error');},5000);}
     async function pump(){
      if(token!==generation||!stream||!worker||inFlight)return;
+     if(!frameTimer)watchFrame();
      if(currentVideo.readyState<2||currentVideo.currentTime===lastVideoTime){schedule(16);return;}
+     watchFrame();
      lastVideoTime=currentVideo.currentTime;inFlight=true;frameStartedAt=performance.now();if(lastCaptureAt!==null)measure('sampleInterval',frameStartedAt-lastCaptureAt);lastCaptureAt=frameStartedAt;let bitmap=null;
      try{
       const width=currentVideo.videoWidth||320,height=currentVideo.videoHeight||240,scale=Math.min(1,256/Math.max(width,height));
@@ -323,7 +326,6 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
       bitmap=await createImageBitmap(currentVideo,{resizeWidth:Math.round(width*scale),resizeHeight:Math.round(height*scale)});
       if(token!==generation){bitmap.close();return;}
       measure('capture',performance.now()-frameStartedAt);
-      frameTimer=setTimeout(()=>{if(token===generation)stopCamera('error');},5000);
       activeWorker.postMessage({type:'frame',image:bitmap,timestamp:performance.now()},[bitmap]);bitmap=null;
      }catch(error){bitmap?.close();if(token===generation)stopCamera('error');}
     }

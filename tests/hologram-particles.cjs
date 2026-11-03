@@ -119,7 +119,34 @@ const source=fs.readFileSync(file,'utf8').replaceAll('export function ','functio
  activeVideo.currentTime=3;runTimer(84);await new Promise(setImmediate);assert.equal(submitted.length,3);assert.equal(bitmaps,1,'Only one inference frame may remain in flight');submitted[2].image.close();runTimer(5000);assert.equal(effect.cameraActive,false,'A stalled inference stops the camera and releases its worker');assert.equal(timers.size,0,'A timed-out inference leaves no polling or deadline timers');const stoppedMetrics=effect.diagnostics;now+=1000;assert.equal(effect.diagnostics.elapsedMs,stoppedMetrics.elapsedMs,'Diagnostics survive camera shutdown without inflating observed duration');assert.equal(bitmaps,0);assert.equal(terminations,1);
  const nextSession=effect.startCamera();assert.equal(effect.diagnostics.frames,0,'Starting another camera session resets the retained aggregate counters');assert.equal(effect.diagnostics.resultHz,0,'Camera restart cannot include time spent inactive');resolvePermission({getTracks:()=>[{stop(){stops++;}}]});await nextSession;feed('two');const beforeRefresh=effect.diagnostics.frames;effect.changeModel();assert.equal(effect.diagnostics.frames,beforeRefresh,'Model refresh cannot reset the active camera session diagnostics');effect.stopCamera();assert.equal(effect.diagnostics.frames,1,'Stopping a camera retains its final aggregate result');
  effect.setEnabled(false);assert.equal(first.visible,true);assert.equal(effect.cameraActive,false);assert.equal(terminations,2);
+
+ effect.setEnabled(true);
+ const watchdogs=()=>[...timerDelays].filter(([id,delay])=>timers.has(id)&&delay===5000);
+ async function cameraSession(){let stopped=0;const starting=effect.startCamera();resolvePermission({getTracks:()=>[{stop(){stopped++;stops++;}}]});await starting;assert.equal(effect.cameraActive,true);return {video:effect.video,get stopped(){return stopped;}};}
+ const TrackerWorker=context.Worker;context.Worker=class extends TrackerWorker{postMessage(message){if(message.type!=='init')super.postMessage(message);}};
+ let initStops=0;const initTerminations=terminations,initializing=effect.startCamera();resolvePermission({getTracks:()=>[{stop(){initStops++;stops++;}}]});await new Promise(setImmediate);
+ assert.equal(watchdogs().length,0,'Frame deadlines must not shorten the existing 30-second tracker initialization allowance');assert([...timerDelays.values()].includes(30000));
+ runTimer(30000);await initializing;assert.equal(initStops,1);assert.equal(terminations,initTerminations+1);assert.equal(timers.size,0);context.Worker=TrackerWorker;
+
+ const unready=await cameraSession(),unreadyTerminations=terminations;
+ assert.equal(watchdogs().length,1,'A video that never becomes ready must have one frame deadline');const unreadyDeadline=watchdogs()[0][0];
+ runTimer(16);assert.equal(watchdogs()[0][0],unreadyDeadline,'Video polling must not restart the deadline');runTimer(5000);
+ assert.equal(effect.cameraActive,false);assert.equal(unready.stopped,1);assert.equal(terminations,unreadyTerminations+1);assert.equal(timers.size,0,'Video readiness timeout releases polling and deadline timers');
+
+ const frozen=await cameraSession(),frozenTerminations=terminations;frozen.video.readyState=2;frozen.video.currentTime=1;
+ runTimer(16);await new Promise(setImmediate);submitted.at(-1).image.close();worker.onmessage({data:{type:'result',landmarks:null,width:256,height:192,inferMs:0}});
+ assert.equal(watchdogs().length,0,'Successful inference clears the frame deadline');runTimer(82);
+ assert.equal(watchdogs().length,1,'A video whose clock stops must have one frame deadline');const frozenDeadline=watchdogs()[0][0];runTimer(16);assert.equal(watchdogs()[0][0],frozenDeadline);runTimer(5000);
+ assert.equal(effect.cameraActive,false);assert.equal(frozen.stopped,1);assert.equal(terminations,frozenTerminations+1);assert.equal(timers.size,0,'Frozen video timeout releases polling and deadline timers');
+
+ const createBitmap=context.createImageBitmap;let resolveCapture,lateCloses=0;context.createImageBitmap=()=>new Promise(resolve=>{resolveCapture=resolve;});
+ const capturing=await cameraSession(),captureTerminations=terminations,submittedBeforeCapture=submitted.length,waitingDeadline=watchdogs()[0][0];capturing.video.readyState=2;capturing.video.currentTime=1;
+ runTimer(16);await new Promise(setImmediate);assert.equal(watchdogs().length,1,'A hung bitmap capture must have one frame deadline');assert.notEqual(watchdogs()[0][0],waitingDeadline,'A fresh video frame starts a full capture/inference deadline');assert.equal(timers.size,1,'Hung capture retains only the shared frame deadline');runTimer(5000);
+ assert.equal(effect.cameraActive,false);assert.equal(capturing.stopped,1);assert.equal(terminations,captureTerminations+1);assert.equal(timers.size,0,'Hung bitmap capture releases the track, worker and timers');
+ context.createImageBitmap=createBitmap;const recovered=await cameraSession(),recoveryTerminations=terminations;bitmaps++;resolveCapture({close(){lateCloses++;bitmaps--;}});await new Promise(setImmediate);
+ assert.equal(lateCloses,1,'A bitmap arriving after capture timeout is closed exactly once');assert.equal(bitmaps,0);assert.equal(submitted.length,submittedBeforeCapture,'A late bitmap cannot reach the old or replacement worker');assert.equal(effect.cameraActive,true,'A stale capture cannot stop a restarted camera');
+ effect.stopCamera();assert.equal(recovered.stopped,1);assert.equal(terminations,recoveryTerminations+1);assert.equal(timers.size,0);effect.setEnabled(false);
  
  effect.dispose();effect.dispose();assert.equal(scene.getObjectByName('museum-gesture-hologram'),undefined);for(const resource of resources)assert.equal(disposed.get(resource),resource===points.geometry?3:1,'Every owned GPU resource is disposed exactly once per allocation');
- console.log('Hologram: sampling/render invariants, touch and hand rotation, responsive guarded swipes, explicit300ms loss grace/reanchoring/no phantom release, slow valid tracking, local aggregate diagnostics,84ms start-to-start scheduling and timeout cleanup pass.');
+ console.log('Hologram: sampling/render invariants, touch and hand rotation, responsive guarded swipes, explicit300ms loss grace/reanchoring/no phantom release, slow valid tracking, local aggregate diagnostics,84ms start-to-start scheduling,30s initialization allowance, video/capture/inference deadlines, restart and late bitmap cleanup pass.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

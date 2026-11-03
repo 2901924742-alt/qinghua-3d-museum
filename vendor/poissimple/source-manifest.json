@@ -1,0 +1,49 @@
+{
+  "name": "poissimple browser ESM",
+  "repository": "https://github.com/mathiasisaksen/poissimple",
+  "commit": "f346f250bb6f6124ce1ae82e4ee0f83c98a05c44",
+  "upstreamPackageVersion": "0.0.3",
+  "license": "MIT",
+  "copyright": "Copyright (c) 2022 Mathias Isaksen",
+  "dependencies": [],
+  "transformation": {
+    "method": "One literal CommonJS export to browser ESM export; every other upstream byte is unchanged",
+    "from": "module.exports = Poissimple;",
+    "to": "export default Poissimple;",
+    "occurrences": 1,
+    "offsetBytes": 8550,
+    "original": "upstream/poissimple.js.txt",
+    "transformed": "poissimple.js",
+    "reverseExactlyRestoresOriginalBytes": true,
+    "upstreamScriptsExecuted": false
+  },
+  "files": [
+    {
+      "path": "LICENSE",
+      "upstreamPath": "LICENSE",
+      "upstreamURL": "https://raw.githubusercontent.com/mathiasisaksen/poissimple/f346f250bb6f6124ce1ae82e4ee0f83c98a05c44/LICENSE",
+      "upstreamGitBlobSHA1": "cc736436162ea8fa1d59ba2279c75a4d58bf4056",
+      "bytes": 1102,
+      "sha256": "883e26b7268e4617d195d76a1e909cf69c2291694243c9a3ee1088978a7a542a",
+      "transformed": false
+    },
+    {
+      "path": "upstream/poissimple.js.txt",
+      "upstreamPath": "src/poissimple.js",
+      "upstreamURL": "https://raw.githubusercontent.com/mathiasisaksen/poissimple/f346f250bb6f6124ce1ae82e4ee0f83c98a05c44/src/poissimple.js",
+      "upstreamGitBlobSHA1": "db57c6276ac540d34ece47ead9ec2f2f2ef736b8",
+      "bytes": 8578,
+      "sha256": "f9001a4fbe4e8a5572cf7fed60ce1a93197e1c811b9a1582ee8cc14b2d91766e",
+      "transformed": false
+    },
+    {
+      "path": "poissimple.js",
+      "upstreamPath": "src/poissimple.js",
+      "upstreamURL": "https://raw.githubusercontent.com/mathiasisaksen/poissimple/f346f250bb6f6124ce1ae82e4ee0f83c98a05c44/src/poissimple.js",
+      "upstreamGitBlobSHA1": "db57c6276ac540d34ece47ead9ec2f2f2ef736b8",
+      "bytes": 8576,
+      "sha256": "690a41759234b47b308d59ef140b8b33762530eb0b30e290d14e7e056e237f54",
+      "transformed": true
+    }
+  ]
+}
