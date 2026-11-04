@@ -21,12 +21,12 @@ const checks=[];
   const $=selector=>{if(!nodes.has(selector))nodes.set(selector,{disabled:false,value:'',setAttribute(){}});return nodes.get(selector);};
   for(const [key,value]of Object.entries({motif:'plum',stampSize:48,width:10,density:75,stampAngle:30}))$('[data-control="'+key+'"]').value=String(value);
   const context={Uint8ClampedArray,console:{warn(){}},active:true,suspended:false,restoring:false,contextUnavailable:false,stroke:null,surfacePointer:null,rotation:null,tool:'flower',compositionJob:null,
-   compositionGroup:{open:true,setAttribute(){}},compositionCanvas:canvasPreview,compositionStatus:{textContent:'ready'},compositionLabels:{ready:'ready',loading:'loading',prepared:'count {count}',empty:'count 0',failed:'failed',applyFailed:'apply failed',applied:'applied'},
-   compositionGenerate:{},compositionCancel:{},compositionApply:{},compositionMode:{value:'balanced'},$,history,future,textureDirty:false,saveToken:73,renderFailed:false,templateName:'plum',labels:{applied:'template applied',failed:'template failed'},t:{renderError:'render failed',painted:'painted'},
+   compositionGroup:{open:true,setAttribute(){}},compositionCanvas:canvasPreview,compositionStatus:{textContent:'ready'},compositionLabels:{ready:'ready',loading:'loading',prepared:'count {count}',empty:'count 0',waveEmpty:'wave count 0',failed:'failed',applyFailed:'apply failed',applied:'applied'},
+   compositionGenerate:{},compositionCancel:{},compositionApply:{},compositionMode:{value:'balanced'},compositionLayout:{value:'free'},compositionHeight:{value:'50'},compositionAmplitude:{value:'24'},compositionWaveControls:{hidden:true},$,history,future,textureDirty:false,saveToken:73,renderFailed:false,templateName:'plum',labels:{applied:'template applied',failed:'template failed'},t:{renderError:'render failed',painted:'painted'},
    ctx:{getImageData(){if(readFailure){readFailure=false;throw Error('read failure');}return copy(pixels);},putImageData(value){if(partialFailure){partialFailure=false;pixels.data[0]=99;throw Error('partial write failure');}pixels=copy(value);}},
    loadComposition(){loads++;return moduleWait.promise;},stopGlaze(){glazeStops++;},updateHistory(){},invalidatePoster(){invalidations++;},queueDraft(){drafts++;},scheduleRender(){renderCalls++;},setStatus(){},finishStroke(){},finishRotation(){},
    document:{createElement(){const canvas={width:0,height:0,getContext:()=>({getImageData:()=>image(77)})};return canvas;}},paintTemplate(){},
-   root:{setAttribute(){},querySelectorAll:()=>[context.compositionGenerate,context.compositionCancel,context.compositionApply,context.compositionMode]},
+   root:{setAttribute(){},querySelectorAll:()=>[context.compositionGenerate,context.compositionCancel,context.compositionApply,context.compositionMode,context.compositionLayout,context.compositionHeight,context.compositionAmplitude]},
    canvas:{setAttribute(){}},angle:{},poster:{},posterJobToken:null,shapeUnavailable:false,updateSurfaceControls(){},updateGLBControls(){},
    cancelArtwork(){},flushDraft(){},renderTimer:null,clearTimeout(){},updateStampSample(){},currentAngle:0,vase:{rotation:{y:0}}};
   vm.createContext(context);
@@ -35,10 +35,12 @@ const checks=[];
   }
   context.listen=(node,event,fn)=>{node[event]=fn;};
   vm.runInContext(source.split(/\r?\n/).find(line=>line.includes("listen(compositionMode,'change'")),context);
+  vm.runInContext(source.split(/\r?\n/).find(line=>line.includes('for(const control of [compositionLayout,compositionHeight,compositionAmplitude])listen(')),context);
   const run=code=>vm.runInContext(code,context);
   const state=()=>({pixels:digest(pixels),history:history.size,future:future.size,drafts,invalidations,glazeStops,saveToken:context.saveToken});
-  async function preview(value=33,count=6){const pending=run('generateComposition()');moduleWait.resolve({createComposition(base,settings){assert.equal(digest(base),digest(image(11)));assert(Math.abs(settings.width-1.8)<1e-12);return {pixels:image(value),count};}});await pending;return pending;}
-  return {context,run,state,history,future,moduleWait,preview,canvasPreview,$,get pixels(){return pixels;},get prepared(){return prepared;},get loads(){return loads;},failWrite(){partialFailure=true;},failRead(){readFailure=true;}};
+  async function preview(value=33,count=6){const pending=run('generateComposition()');moduleWait.resolve({createComposition(base,settings){assert.equal(digest(base),digest(image(11)));assert(Math.abs(settings.width-1.8)<1e-12);assert.deepEqual(Object.keys(settings).sort(),['density','mode','motif','rotation','size','width']);return {pixels:image(value),count};}});await pending;return pending;}
+  async function wavePreview(value=33,count=6){context.compositionLayout.value='wave';const pending=run('generateComposition()');moduleWait.resolve({createWaveComposition(base,settings){assert.equal(digest(base),digest(image(11)));assert.equal(settings.height,50);assert.equal(settings.amplitude,24);return {pixels:image(value),count};}});await pending;return pending;}
+  return {context,run,state,history,future,moduleWait,preview,wavePreview,canvasPreview,$,get pixels(){return pixels;},get prepared(){return prepared;},get loads(){return loads;},failWrite(){partialFailure=true;},failRead(){readFailure=true;}};
  }
  async function test(name,fn){await fn(fixture());checks.push(name);}
  await test('preview-and-cancel-have-no-document-side-effects',async f=>{
@@ -99,6 +101,18 @@ const checks=[];
  });
  await test('suspend-and-leave-clear-candidates-without-document-change',async f=>{
   await f.preview();const job=f.context.compositionJob,before=f.state();f.run('suspend()');assert.equal(f.context.compositionJob,null);assert.equal(job.result,null);assert.equal(f.canvasPreview.width,0);assert.deepEqual(f.state(),{...before,glazeStops:before.glazeStops+1});f.run('resume()');assert.equal(f.context.compositionApply.disabled,true);
+ });
+ for(const [name,event,value] of [['compositionLayout','change','free'],['compositionHeight','input','60'],['compositionAmplitude','input','32']])await test('wave-preview-only-control-cancels-'+name,async f=>{
+  await f.wavePreview();const before=f.state(),job=f.context.compositionJob;f.context[name].value=value;f.context[name][event]();assert.equal(job.result,null);assert.equal(f.context.compositionJob,null);assert.equal(f.canvasPreview.width,0);assert.equal(f.context.compositionApply.disabled,true);assert.deepEqual(f.state(),before);
+ });
+ await test('wave-uses-existing-exact-pixel-commit-one-undo-redo',async f=>{
+  const before=f.state();await f.wavePreview();assert.deepEqual(f.state(),before);const prepared=digest(f.prepared);f.run('applyComposition()');assert.equal(digest(f.pixels),prepared);assert.equal(f.history.size,1);assert.equal(f.context.compositionJob,null);f.run('travelHistory(history,future)');assert.equal(digest(f.pixels),before.pixels);f.run('travelHistory(future,history)');assert.equal(digest(f.pixels),prepared);
+ });
+ await test('wave-zero-count-and-restore-unlock-recompute-hidden-controls',async f=>{
+  await f.wavePreview(11,0);assert.equal(f.context.compositionStatus.textContent,'wave count 0');assert.equal(f.context.compositionApply.disabled,true);f.run('lockRestore(true);lockRestore(false)');assert.equal(f.context.compositionApply.disabled,true);assert.equal(f.context.compositionWaveControls.hidden,false);assert.equal(f.context.compositionHeight.disabled,false);const before=f.state();f.run('applyComposition()');assert.deepEqual(f.state(),before);f.context.compositionLayout.value='free';f.context.compositionLayout.change();assert.equal(f.context.compositionWaveControls.hidden,true);assert.equal(f.context.compositionHeight.disabled,true);assert.equal(f.context.compositionAmplitude.disabled,true);
+ });
+ await test('wave-parameter-cancels-delayed-module-without-document-change',async f=>{
+  f.context.compositionLayout.value='wave';const before=f.state(),pending=f.run('generateComposition()'),job=f.context.compositionJob;f.context.compositionHeight.value='60';f.context.compositionHeight.input();f.moduleWait.resolve({createWaveComposition(){throw Error('Cancelled wave generator must not run');}});await pending;assert.equal(job.base,null);assert.equal(job.result,null);assert.equal(f.context.compositionJob,null);assert.equal(f.canvasPreview.width,0);assert.deepEqual(f.state(),before);
  });
  console.log(JSON.stringify({status:'passed',checks:checks.length,cases:checks,sourceSHA256:crypto.createHash('sha256').update(source).digest('hex'),scope:'Actual extracted product transaction/job/template/history/lock/suspend bodies. Only dynamic-import transport is replaced. Pixel buffers, Canvas methods, DOM and timers are controlled stubs. No browser, native raster, real generator, GPU, JSON/PNG/GLB or mobile-layout claim.'},null,2));
 })().catch(error=>{console.error(error);process.exitCode=1;});

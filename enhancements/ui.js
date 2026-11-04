@@ -162,7 +162,7 @@ export function createUI(core) {
   const token=++exportToken, lang=language;$('exportStatus').textContent=t('exporting');
   $('exportPreview').hidden=true;$('exportDownload').hidden=true;
   try {
-   if(!captured)throw new Error('Capture unavailable');
+   if(!captured)captured=core.capture();if(!captured)throw new Error('Capture unavailable');
    let canvas=captured;
    if(poster){
     let QR;try{QR=await loadQR();}catch{if(token===exportToken&&panel==='export')$('exportStatus').textContent=t('qrError');return;}
