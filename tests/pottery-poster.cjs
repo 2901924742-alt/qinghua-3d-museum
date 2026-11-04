@@ -33,9 +33,9 @@ function recorder(){
    listen(node,event,callback){node[event]=callback;},finishEdit(){},finishRotation(){},clearTimeout(){},console:{warn(){}},
    document:{createElement(type){assert.equal(type,'canvas');const sheet={id:'sheet',width:0,height:0,ctx:recorder(),getContext(){return this.ctx;},toBlob(callback,type){assert.equal(type,'image/png');blobs.push(callback);}};sheet.ctx.failCopy=failCopy;sheets.push(sheet);return sheet;}},
    URL:{createObjectURL(){const url='blob:poster-'+(urls.size+1);urls.add(url);return url;},revokeObjectURL(url){urls.delete(url);revoked.push(url);}},
-   render(){vm.runInContext('drawProfile()',context);}});
+   render(){vm.runInContext('drawProfile()',context);return true;}});
   vm.runInContext(labels+';this.t={...words['+JSON.stringify(language)+'],...sectionWords['+JSON.stringify(language)+'],...referenceWords['+JSON.stringify(language)+'],...(typeof posterWords===\'undefined\'?{}:posterWords['+JSON.stringify(language)+'])};',context);
-  vm.runInContext("let selected=.5,frame=null,edit=null,active=true,generation=0,renderTimer=null,renderFailed=false,pngURL=null;let view="+JSON.stringify(view)+";const say=text=>{this.message=text;};"+['mapping','radiusAt','point','selection','updateHistory','updateControls','drawProfile'].map(declaration).join('\n')+'\n'+posterRegistration,context,{filename:sourceFile});
+  vm.runInContext("let selected=.5,frame=null,edit=null,active=true,generation=0,renderTimer=null,renderFailed=false,contextUnavailable=false,posterJobToken=null,pngURL=null;let view="+JSON.stringify(view)+";const say=text=>{this.message=text;};"+['updatePosterControls','mapping','radiusAt','point','selection','updateHistory','updateControls','drawProfile'].map(declaration).join('\n')+'\n'+posterRegistration,context,{filename:sourceFile});
   return {model,p,before,context,profile,poster,posterImage,sheets,blobs,urls,revoked,$,run:code=>vm.runInContext(code,context),close(){model.dispose();}};
  }
  async function check(name,options,test){const f=fixture(options);try{await test(f);checks.push(name);}catch(error){failures.push({name,error:String(error),stack:error.stack});}finally{f.close();}}

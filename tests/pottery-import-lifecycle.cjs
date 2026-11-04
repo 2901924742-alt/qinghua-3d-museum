@@ -68,7 +68,7 @@ const wordsSource = source.slice(source.indexOf('const words='), source.indexOf(
                 getContext: () => ctx, toBlob(callback) {blobs.push(callback);}};}},
             console: {warn() {}},
             updateHistory() {}, drawProfile() {}, prepareWire() {},
-            render() {renderCalls++;}, scheduleRender() {renderCalls++;}});
+            render() {renderCalls++;return true;}, scheduleRender() {renderCalls++;}});
         vm.runInContext(wordsSource + ';this.t=words[' + JSON.stringify(language) + ']', context);
         vm.runInContext([
             // Return the listener's result only so this CPU fixture can await the real async callback.
@@ -76,7 +76,7 @@ const wordsSource = source.slice(source.indexOf('const words='), source.indexOf(
             lineWith('let active=true,suspended=false,model=null,'),
             lineWith('let wireAttempted=false,'), lineWith('const bands=[.08,'), 'model=__model;',
             "const say=text=>{status.textContent=text;};",
-            ...['clearExports', 'flushDraft', 'queueDraft', 'mapping', 'radiusAt', 'selection', 'applyPending',
+            ...['updatePosterControls', 'clearExports', 'flushDraft', 'queueDraft', 'mapping', 'radiusAt', 'selection', 'applyPending',
                 'finishEdit', 'finishRotation', 'changed', 'beginBand', 'nudge', 'flushOnLeave', 'suspend', 'resume',
                 'clearSection', 'syncView', 'dispose'].map(declaration),
             registration("listen(radius,'input'"), registration("listen(band,'change'"),

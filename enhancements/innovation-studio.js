@@ -69,7 +69,7 @@ export function mountStudio(container,{language,exhibits,getStudioRenderer,getEx
     entry.mountReady=null;if(disposed||serial!==token||current!==entry)return;
     try{
      entry.renderer=renderer;body.replaceChildren();
-     entry.instance=kind==='paint'?module.mountPaint(body,{language,THREE:renderer.THREE,renderPreview:renderer.renderPreview,shapeJSON,createPotteryModel}):kind==='pottery'?module.mountPottery(body,{language,THREE:renderer.THREE,renderPreview:renderer.renderPreview,onPaintShape:shape=>{if(current===entry&&!paused)show('paint',shape,entry.element.querySelector('[data-action=paintShape]'));}}):module.mountCompare(body,{language,exhibits,getExhibitIndex,onViewExhibit,captureExhibit:renderer.captureExhibit});
+     entry.instance=kind==='paint'?module.mountPaint(body,{language,THREE:renderer.THREE,renderPreview:renderer.renderPreview,contextCanvas:renderer.contextCanvas,releaseSceneGPU:renderer.releaseSceneGPU,shapeJSON,createPotteryModel}):kind==='pottery'?module.mountPottery(body,{language,THREE:renderer.THREE,renderPreview:renderer.renderPreview,contextCanvas:renderer.contextCanvas,releaseSceneGPU:renderer.releaseSceneGPU,onPaintShape:shape=>{if(current===entry&&!paused)show('paint',shape,entry.element.querySelector('[data-action=paintShape]'));}}):module.mountCompare(body,{language,exhibits,getExhibitIndex,onViewExhibit,captureExhibit:renderer.captureExhibit});
     }catch(error){console.warn('Museum creative experiment unavailable:',error);body.replaceChildren();const status=document.createElement('p');status.setAttribute('role','status');status.textContent=text.error;body.append(status);}
    };
    if(paused)entry.mountReady=mountReady;else mountReady();

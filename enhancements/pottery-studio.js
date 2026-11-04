@@ -21,7 +21,7 @@ const posterWords={
  en:{posterHeight:'Design height H',posterRadius:'Max radius Rmax',posterOuter:'Outer profile',posterInner:'Inner profile',posterSampling:'Sampled radial profile · not a measured section',posterBase:'from model base'}
 };
 
-export function mountPottery(container,{language='zh',THREE,renderPreview,onPaintShape=null}){
+export function mountPottery(container,{language='zh',THREE,renderPreview,onPaintShape=null,contextCanvas=null,releaseSceneGPU=null}){
  const t={...(words[language]||words.zh),...(sectionWords[language]||sectionWords.zh),...(referenceWords[language]||referenceWords.zh),...(posterWords[language]||posterWords.zh)},root=document.createElement('section'),lifetime=new AbortController();
  root.className='innovation-pottery';root.dataset.testid='potteryStudio';root.dataset.wire='triangles';root.dataset.section='full';root.setAttribute('aria-busy','true');
  root.innerHTML=`<h3>${t.title}</h3><p>${t.intro}</p><p class="innovation-note">${t.note}</p><div class="innovation-toolbar"><label class="innovation-field">${t.preset}<select data-control="preset">${['vase','jar','bowl'].map(kind=>`<option value="${kind}">${t[kind]}</option>`).join('')}</select></label><button type="button" data-action="undo" disabled>${t.undo}</button><button type="button" data-action="redo" disabled>${t.redo}</button><button type="button" data-action="reset">${t.reset}</button></div><div class="innovation-studio-grid"><div class="innovation-canvas-wrap"><h4>${t.profile}</h4><canvas data-testid="potteryProfile" width="512" height="512" aria-label="${t.profile}"></canvas><p class="pottery-readout" aria-live="off"></p></div><div class="innovation-canvas-wrap"><h4>${t.preview}</h4><canvas data-testid="potteryPreview" width="512" height="512" aria-label="${t.preview}"></canvas><div class="innovation-actions"><button type="button" data-mode="solid" aria-pressed="true">${t.solid}</button><button type="button" data-mode="wire" aria-pressed="false">${t.wire}</button><button type="button" data-view="front" aria-pressed="true">${t.front}</button><button type="button" data-view="rim" aria-pressed="false">${t.rim}</button></div><label class="innovation-field">${t.angle}<input data-control="angle" type="range" min="-180" max="180" value="0"></label></div></div><div class="pottery-shape-controls"><label class="innovation-field">${t.band}<select data-control="band">${t.bands.map((name,index)=>`<option value="${index}"${index===2?' selected':''}>${name}</option>`).join('')}</select></label><label class="innovation-field">${t.radius}<input data-control="radius" type="range" min="0.5" max="16" step="0.05" value="5"><output data-value="radius"></output></label><button type="button" data-action="narrow">${t.narrow}</button><button type="button" data-action="widen">${t.widen}</button></div><div class="innovation-actions"><button type="button" data-action="paintShape"${typeof onPaintShape==='function'?'':' hidden'}>${t.paintShape}</button><button type="button" data-action="saveDesign">${t.saveDesign}</button><label class="pottery-file-button">${t.importDesign}<input data-action="importDesign" type="file" accept="application/json,.json"></label><button type="button" data-action="poster">${t.poster}</button><a class="download" data-action="designDownload" hidden>${t.designDownload}</a><a class="download" data-action="download" hidden>${t.download}</a></div><p class="innovation-status" role="status" aria-live="polite">${t.ready}</p><p class="innovation-note">${t.storageNote}</p><p class="pottery-draft-status innovation-note" role="status" aria-live="polite">${t.draftReady}</p><img data-testid="potteryPoster" alt="${t.posterAlt}" hidden>`;
@@ -29,17 +29,19 @@ export function mountPottery(container,{language='zh',THREE,renderPreview,onPain
  root.querySelector('[data-view="rim"]').insertAdjacentHTML('afterend',`<button type="button" data-view="section" aria-pressed="false">${t.section}</button>`);
  root.querySelector('[data-control="angle"]').closest('label').insertAdjacentHTML('beforebegin',`<div data-testid="potterySectionControls" hidden><label class="innovation-field">${t.sectionHeight}<input data-control="sectionHeight" type="range" min="10" max="90" step="1" value="55"><output data-value="sectionHeight">55%</output></label><p class="innovation-note">${t.sectionNote}</p></div>`);
  container.append(root);
+ const contextStatus=document.createElement('p');contextStatus.className='innovation-note';contextStatus.dataset.testid='potteryContextStatus';contextStatus.hidden=true;contextStatus.setAttribute('role','status');contextStatus.setAttribute('aria-live','polite');contextStatus.textContent=language==='en'?'The 3D preview is temporarily unavailable. Your vessel remains on this page. Keep editing its profile, and save design JSON separately.':'三维预览暂不可用，器形仍在当前页面。可继续调整轮廓，并先另存设计 JSON。';root.querySelector('.innovation-status').before(contextStatus);
  const $=selector=>root.querySelector(selector),profile=$('[data-testid="potteryProfile"]'),preview=$('[data-testid="potteryPreview"]'),ctx=profile.getContext('2d'),status=$('.innovation-status'),draftStatus=$('.pottery-draft-status'),preset=$('[data-control="preset"]'),radius=$('[data-control="radius"]'),band=$('[data-control="band"]'),angle=$('[data-control="angle"]'),poster=$('[data-action="poster"]'),posterImage=$('[data-testid="potteryPoster"]');
  const sectionButton=$('[data-view="section"]'),sectionControls=$('[data-testid="potterySectionControls"]'),sectionHeight=$('[data-control="sectionHeight"]'),sectionOutput=$('[data-value="sectionHeight"]');
  const reference=$('[data-control="reference"]'),referenceReadout=$('[data-testid="potteryReferenceReadout"]'),references=new Map();let referenceKind='off';
  profile.tabIndex=0;
  const listen=(node,event,fn)=>node.addEventListener(event,(...args)=>{if(!suspended)fn(...args);},{signal:lifetime.signal});
- let active=true,suspended=false,model=null,scene=null,camera=null,mesh=null,material=null,wireMaterial=null,renderTimer=null,saveTimer=null,lastRender=-Infinity,renderFailed=false,draftDirty=false,edit=null,pending=null,rotation=null,mode='solid',view='front',generation=0,shapeRevision=0,importToken=0,pngURL=null,designURL=null;
+ let active=true,suspended=false,model=null,scene=null,camera=null,mesh=null,material=null,wireMaterial=null,renderTimer=null,saveTimer=null,lastRender=-Infinity,renderFailed=false,contextUnavailable=false,posterJobToken=null,draftDirty=false,edit=null,pending=null,rotation=null,mode='solid',view='front',generation=0,shapeRevision=0,importToken=0,pngURL=null,designURL=null;
  let wireAttempted=false,wireTexture=null,wireCanvas=null,section=null,sectionBlocked=false;
  const bands=[.08,.28,.5,.72,.94];let selected=.5,frame=null;
  for(const item of root.querySelectorAll('button,input,select'))item.disabled=true;
  for(const canvas of [profile,preview]){canvas.style.touchAction='none';canvas.style.width='100%';canvas.style.height='auto';}
  const say=text=>{status.textContent=text;};
+ function updatePosterControls(){poster.disabled=contextUnavailable||posterJobToken!==null;}
  function clearExports(){generation++;for(const key of ['download','designDownload']){const link=$(`[data-action="${key}"]`);link.hidden=true;link.removeAttribute('href');}posterImage.hidden=true;posterImage.removeAttribute('src');if(pngURL)URL.revokeObjectURL(pngURL);if(designURL)URL.revokeObjectURL(designURL);pngURL=designURL=null;}
  function updateHistory(p=model.getProfile()){$('[data-action="undo"]').disabled=!p.canUndo;$('[data-action="redo"]').disabled=!p.canRedo;preset.value=p.preset;}
  function flushDraft(){if(saveTimer!==null)clearTimeout(saveTimer);saveTimer=null;if(!draftDirty||!model)return;try{localStorage.setItem(draftKey,model.serialize());draftDirty=false;draftStatus.textContent=t.draftSaved;}catch{draftStatus.textContent=t.draftFailed;}}
@@ -113,29 +115,37 @@ export function mountPottery(container,{language='zh',THREE,renderPreview,onPain
   wireTexture=texture;wireCanvas=tile;wireMaterial.map=texture;wireMaterial.color.set(0xffffff);wireMaterial.wireframe=false;wireMaterial.side=THREE.FrontSide;wireMaterial.needsUpdate=true;root.dataset.wire='grid';
  }
  function render(){
-  renderTimer=null;if(!active||suspended||!model)return;applyPending();drawProfile();lastRender=performance.now();if(renderFailed)return;
+  renderTimer=null;if(!active||suspended||!model)return false;applyPending();drawProfile();lastRender=performance.now();if(renderFailed||contextUnavailable)return false;
   const sliced=view==='section';
-  try{const box=model.geometry.boundingBox;mesh.position.y=-(box.min.y+box.max.y)/2;mesh.material=mode==='wire'?wireMaterial:material;if(sliced)updateSection(box);updateCamera();renderPreview(scene,camera,preview,sliced);syncView();}
+  try{const box=model.geometry.boundingBox;mesh.position.y=-(box.min.y+box.max.y)/2;mesh.material=mode==='wire'?wireMaterial:material;if(sliced)updateSection(box);updateCamera();renderPreview(scene,camera,preview,sliced);if(contextUnavailable)return false;syncView();return true;}
   catch(error){
+   if(error?.code==='MUSEUM_CONTEXT_LOST'){loseContext();return false;}
    if(sliced){
     const focus=document.activeElement===sectionButton||sectionControls.contains(document.activeElement);sectionBlocked=true;clearSection();view='front';syncView();if(focus)$('[data-view="front"]').focus({preventScroll:true});say(t.sectionUnavailable);console.warn('Pottery section unavailable; complete vessel restored:',error);
-    try{updateCamera();renderPreview(scene,camera,preview,false);return;}catch(fallback){error=fallback;}
+    try{updateCamera();renderPreview(scene,camera,preview,false);return !contextUnavailable;}catch(fallback){if(fallback?.code==='MUSEUM_CONTEXT_LOST'){loseContext();return false;}error=fallback;}
    }
    renderFailed=true;say(t.renderFailed);console.warn('Pottery preview unavailable:',error);
   }
+  return false;
  }
  function scheduleRender(){if(!active||suspended||renderTimer!==null)return;const delay=Math.max(0,125-(performance.now()-lastRender));if(delay===0)render();else renderTimer=setTimeout(render,delay);}
+ function loseContext(){
+  if(!active||contextUnavailable)return;contextUnavailable=true;contextStatus.hidden=false;if(renderTimer!==null)clearTimeout(renderTimer);renderTimer=null;
+  finishEdit();finishRotation();releaseSceneGPU?.(scene);updatePosterControls();
+ }
+ function restoreContext(){if(!active)return;contextUnavailable=false;contextStatus.hidden=true;updatePosterControls();scheduleRender();}
  function finishEdit(event){if(!edit||event&&event.pointerId!==undefined&&event.pointerId!==edit.id)return;applyPending();const {id,changed}=edit;edit=null;model.endStroke();if(id!==null)try{profile.releasePointerCapture(id);}catch{}if(changed)queueDraft();scheduleRender();updateHistory();}
  function finishRotation(event){if(!rotation||event&&event.pointerId!==undefined&&event.pointerId!==rotation.id)return;const id=rotation.id;rotation=null;try{preview.releasePointerCapture(id);}catch{}}
  function changed(){shapeRevision++;clearExports();queueDraft();scheduleRender();say(t.changed);}
  function beginBand(){if(edit)return;const p=model.getProfile(),map=mapping(p),s=selection(p,map);model.beginStroke(s.r,s.y);edit={id:null,map,time:performance.now()-100,changed:false};}
  function nudge(delta){finishEdit();const p=model.getProfile(),map=mapping(p),s=selection(p,map);model.beginStroke(s.r,s.y);const edited=model.sculpt(Math.max(.5,Math.min(16,s.r+delta)),s.y,.125);model.endStroke();if(edited)changed();}
  function flushOnLeave(){finishEdit();finishRotation();flushDraft();}
- function suspend(){if(!active||suspended)return;flushOnLeave();suspended=true;generation++;importToken++;if(renderTimer!==null)clearTimeout(renderTimer);renderTimer=null;poster.disabled=false;}
+ function suspend(){if(!active||suspended)return;flushOnLeave();suspended=true;generation++;importToken++;if(renderTimer!==null)clearTimeout(renderTimer);renderTimer=null;posterJobToken=null;updatePosterControls();}
  function resume(){if(!active||!suspended)return;suspended=false;scheduleRender();}
  function dispose(){
   if(!active)return;flushOnLeave();active=false;lifetime.abort();importToken++;clearExports();if(renderTimer!==null)clearTimeout(renderTimer);if(saveTimer!==null)clearTimeout(saveTimer);renderTimer=saveTimer=null;clearSection();material?.dispose();wireMaterial?.dispose();wireTexture?.dispose();if(wireCanvas)wireCanvas.width=wireCanvas.height=0;wireTexture=wireCanvas=null;model?.dispose();references.clear();root.remove();
  }
+ contextCanvas?.addEventListener('webglcontextlost',loseContext,{signal:lifetime.signal});contextCanvas?.addEventListener('webglcontextrestored',restoreContext,{signal:lifetime.signal});
  try{
   if(!ctx)throw new Error('Canvas 2D unavailable');
   model=createPotteryModel({THREE,mobile:matchMedia('(max-width:700px)').matches,preset:'vase'});
@@ -161,7 +171,7 @@ export function mountPottery(container,{language='zh',THREE,renderPreview,onPain
   for(const button of root.querySelectorAll('[data-view]'))listen(button,'click',()=>{if(view===button.dataset.view||button.dataset.view==='section'&&sectionBlocked)return;view=button.dataset.view;if(view!=='section')clearSection();syncView();clearExports();scheduleRender();});
   listen(sectionHeight,'input',()=>{if(view!=='section'||sectionBlocked)return;clearExports();scheduleRender();});
   listen(angle,'input',()=>{clearExports();scheduleRender();});
-  listen(preview,'pointerdown',event=>{if(rotation||!event.isPrimary||event.button!==0)return;rotation={id:event.pointerId,x:event.clientX,angle:Number(angle.value)};event.preventDefault();try{preview.setPointerCapture(event.pointerId);}catch{}});
+  listen(preview,'pointerdown',event=>{if(contextUnavailable||rotation||!event.isPrimary||event.button!==0)return;rotation={id:event.pointerId,x:event.clientX,angle:Number(angle.value)};event.preventDefault();try{preview.setPointerCapture(event.pointerId);}catch{}});
   listen(preview,'pointermove',event=>{if(!rotation||event.pointerId!==rotation.id)return;event.preventDefault();const width=Math.max(1,preview.getBoundingClientRect().width),value=rotation.angle+(event.clientX-rotation.x)*300/width;angle.value=String(((value+180)%360+360)%360-180);clearExports();scheduleRender();});
   for(const event of ['pointerup','pointercancel','lostpointercapture'])listen(preview,event,finishRotation);
   listen(window,'blur',()=>{finishEdit();finishRotation();});listen(window,'pagehide',flushOnLeave);listen(document,'visibilitychange',()=>{if(document.visibilityState==='hidden')flushOnLeave();});
@@ -170,14 +180,14 @@ export function mountPottery(container,{language='zh',THREE,renderPreview,onPain
   listen($('[data-action="paintShape"]'),'click',()=>{finishEdit();finishRotation();try{onPaintShape?.(model.serialize());}catch{say(t.importFailed);}});
   listen($('[data-action="importDesign"]'),'change',async event=>{const file=event.target.files?.[0],token=++importToken;event.target.value='';if(!file)return;if(file.size>131072){say(t.importFailed);return;}finishEdit();const revision=shapeRevision;try{const text=await file.text();if(!active||token!==importToken)return;if(revision!==shapeRevision||edit||pending){say(t.importCancelled);return;}if(model.restore(text)){changed();say(t.imported);}else say(t.importFailed);}catch{if(active&&token===importToken)say(t.importFailed);}});
   listen(poster,'click',async()=>{
-   finishEdit();finishRotation();if(renderFailed){say(t.renderFailed);return;}if(renderTimer!==null)clearTimeout(renderTimer);renderTimer=null;render();if(renderFailed){say(t.renderFailed);return;}const token=++generation;poster.disabled=true;
+   if(contextUnavailable||posterJobToken!==null)return;finishEdit();finishRotation();if(renderFailed){say(t.renderFailed);return;}if(renderTimer!==null)clearTimeout(renderTimer);renderTimer=null;if(!render()){if(!contextUnavailable)say(t.renderFailed);return;}const token=++generation;posterJobToken=token;updatePosterControls();
    try{const p=model.getProfile(),sheet=document.createElement('canvas');sheet.width=1280;sheet.height=900;const draw=sheet.getContext('2d');if(!draw)throw new Error('Canvas 2D unavailable');draw.fillStyle='#081426';draw.fillRect(0,0,1280,900);draw.strokeStyle='#7eadd7';draw.lineWidth=2;draw.strokeRect(24,24,1232,852);draw.fillStyle='#e8f4ff';draw.font='bold 42px sans-serif';draw.fillText(t.posterTitle,56,92);draw.fillStyle='#9bc7ee';draw.font='21px sans-serif';draw.fillText(view==='section'?t.sectionNote:t.note,56,138,1168);
     try{drawProfile(false,false);draw.drawImage(profile,56,198,512,512);}finally{drawProfile();}draw.drawImage(preview,650,198,512,512);draw.font='25px sans-serif';draw.fillText(t.profile,56,764);draw.font=view==='section'?'21px sans-serif':'25px sans-serif';draw.fillText(view==='section'?`${t.section} · ${Math.max(10,Math.min(90,Number(sectionHeight.value)||55))}% ${t.posterBase}`:t.preview,650,764,512);
     draw.font='18px sans-serif';draw.fillText(`${t.posterHeight}: ${p.height.toFixed(2)} · ${t.units}`,56,794,512);draw.fillText(`${t.posterRadius}: ${p.maxR.toFixed(2)} · ${t.units}`,56,820,512);
     for(const [x,color,width,label]of [[650,'#bddfff',3,t.posterOuter],[912,'#6fa6d0',1.5,t.posterInner]]){draw.strokeStyle=color;draw.lineWidth=width;draw.beginPath();draw.moveTo(x,788);draw.lineTo(x+32,788);draw.stroke();draw.fillStyle=color;draw.fillText(label,x+44,794);}
     draw.fillStyle='#9bc7ee';draw.fillText(t.posterSampling,650,820,512);draw.fillText(t.posterFoot,56,844,1168);
     const blob=await new Promise((resolve,reject)=>sheet.toBlob(value=>value?resolve(value):reject(new Error('PNG encoding failed')),'image/png'));sheet.width=sheet.height=0;if(!active||token!==generation)return;const nextURL=URL.createObjectURL(blob);if(pngURL)URL.revokeObjectURL(pngURL);pngURL=nextURL;const link=$('[data-action="download"]');link.href=pngURL;link.download='qinghua-original-vessel.png';link.hidden=false;posterImage.src=pngURL;posterImage.hidden=false;say(t.posterReady);
-   }catch(error){if(active&&token===generation)say(t.posterFailed);console.warn('Pottery poster unavailable:',error);}finally{if(active)poster.disabled=false;}
+   }catch(error){if(active&&token===generation)say(t.posterFailed);console.warn('Pottery poster unavailable:',error);}finally{if(posterJobToken===token){posterJobToken=null;if(active)updatePosterControls();}}
   });
   return {dispose,suspend,resume};
  }catch(error){dispose();throw error;}

@@ -342,7 +342,6 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 document.body.appendChild(renderer.domElement);
 renderer.domElement.addEventListener('webglcontextlost',event=>{event.preventDefault();safeExperience(experience=>experience.cancelIntro('contextlost'));});
-renderer.domElement.addEventListener('webglcontextrestored',()=>window.location.reload());
 
 /* ================= 控制器 ================= */
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -731,9 +730,10 @@ function resizeDesktopMistTarget() {
 }
 resizeDesktopMistTarget();
 function renderMuseum() {
+    if (renderer.getContext().isContextLost()) return false;
     if (!useInstancedMist) {
         renderer.render(scene, camera);
-        return;
+        return !renderer.getContext().isContextLost();
     }
     renderer.info.reset();
     const previousTarget = renderer.getRenderTarget();
@@ -764,6 +764,7 @@ function renderMuseum() {
         renderer.setRenderTarget(previousTarget);
     }
     renderer.render(scene, camera);
+    return !renderer.getContext().isContextLost();
 }
 const sortedMistClouds = [...mistClouds];
 function updateMistInstances() {
@@ -1153,6 +1154,27 @@ function monitorDesktopQuality(timestamp) {
     qualityWindowAt = timestamp;
     qualitySamples = qualityTotalMs = 0;
 }
+function releaseSceneGPU(root) {
+    if (!root) return;
+    const instances=new Set(),geometries=new Set(),materials=new Set(),textures=new Set();
+    const remember=value=>{if(value?.isTexture)textures.add(value);else if(Array.isArray(value))value.forEach(remember);};
+    root.traverse(object=>{if(object.isInstancedMesh)instances.add(object);if(object.geometry)geometries.add(object.geometry);for(const material of Array.isArray(object.material)?object.material:[object.material])if(material)materials.add(material);});
+    remember(root.background);remember(root.environment);
+    for(const material of materials){Object.values(material).forEach(remember);for(const uniform of Object.values(material.uniforms||{}))remember(uniform.value);}
+    // Retire old GPU listeners while the native context is lost; keep CPU artwork and images.
+    for(const instance of instances)instance.dispose();
+    for(const geometry of geometries)geometry.dispose();
+    // Material disposal can cancel pending interior maps; Three replaces its program cache on restore.
+    for(const texture of textures)texture.dispose();
+}
+// Register after startup awaits and clock initialization; Three handles earlier restoration.
+renderer.domElement.addEventListener('webglcontextlost',()=>{
+    releaseSceneGPU(scene);releaseSceneGPU(desktopMistScene);desktopMistTarget?.dispose();mistDepthMaterial?.dispose();
+});
+renderer.domElement.addEventListener('webglcontextrestored',()=>{
+    renderer.resetState();renderer.setRenderTarget(null);
+    resetRenderQuality();animationClock.getDelta();
+});
 document.addEventListener('visibilitychange', () => {
     previousFrameAt = previousRafAt = qualityWindowAt = 0;
     qualitySamples = qualityTotalMs = 0;
@@ -1161,6 +1183,7 @@ document.addEventListener('visibilitychange', () => {
 function animate(timestamp = 0){
     requestAnimationFrame(animate);
     if (document.hidden) return;
+    if (renderer.getContext().isContextLost()) {animationClock.getDelta();return;}
     if(loadingScreen.style.display!=='none'){animationClock.getDelta();return;}
     monitorDesktopQuality(timestamp);
     // 高刷新率电脑最高重绘 60 次/秒；手机沿用当前渲染节奏。
@@ -1274,7 +1297,7 @@ restoreBtn.addEventListener("click",()=>{
 import('./enhancements/experience.js').then(({createExperience}) => {
     museumExperience = createExperience({THREE, scene, renderer, camera, controls,
         renderMuseum: () => renderMuseum(), isDesktop: isDesktopRenderer, hideInfo, restoreInfo,
-        loadExhibit, disposeExhibit, onExhibitChange:model=>{exhibitModel=model;queueNextExhibit();}});
+        loadExhibit, disposeExhibit, releaseSceneGPU, onExhibitChange:model=>{exhibitModel=model;queueNextExhibit();}});
     window.museumEnhancements = museumExperience;
     if (exhibitModel) safeExperience(experience=>experience.ready(exhibitModel));
 }).catch(disableExperience);

@@ -79,6 +79,7 @@ export function parsePaintDraft(raw){
   const result={version:draft.version,width:512,height:256,png:draft.png,tool:draft.tool,brushWidth:draft.brushWidth,density:draft.density,angle:draft.angle,glazed:draft.glazed};
   if(draft.version===2){
    result.shapeJSON=draft.shapeJSON;
+   if(draft.brushMirror!==undefined){if(typeof draft.brushMirror!=='boolean')return null;result.brushMirror=draft.brushMirror;}
    if(draft.stamp!==undefined){if(draft.tool!=='flower'||!['flower','plum','bamboo','cloud','ring','disc','band'].includes(draft.stamp))return null;result.stamp=draft.stamp;}
    if(draft.stampSize!==undefined){if(!Number.isInteger(draft.stampSize)||!range(draft.stampSize,16,96))return null;result.stampSize=draft.stampSize;}
    if(draft.stampAngle!==undefined){if(!Number.isInteger(draft.stampAngle)||!range(draft.stampAngle,-180,180))return null;result.stampAngle=draft.stampAngle;}
@@ -90,6 +91,8 @@ export function parsePaintDraft(raw){
 
 export function stringifyPaintDraft(state){
  const draft={version:2,width:512,height:256,png:state.png,tool:state.tool,brushWidth:state.brushWidth,density:state.density,angle:state.angle,glazed:state.glazed,shapeJSON:state.shapeJSON===undefined?null:state.shapeJSON};
+ if(state.brushMirror!==undefined&&typeof state.brushMirror!=='boolean')throw new Error('Invalid paint draft');
+ if(state.brushMirror===true)draft.brushMirror=true;
  if(state.stamp!==undefined)draft.stamp=state.stamp;
  if(state.stampSize!==undefined)draft.stampSize=state.stampSize;
  if(state.stampAngle!==undefined)draft.stampAngle=state.stampAngle;

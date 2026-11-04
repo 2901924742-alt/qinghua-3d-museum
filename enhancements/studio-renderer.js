@@ -1,14 +1,17 @@
 import {exhibits} from './exhibits.js';
 
 // On-demand previews reuse the museum context; no second WebGL renderer or loop.
-export function createStudioRenderer({THREE,renderer,loadExhibit,disposeExhibit,getModel,getIndex}) {
+export function createStudioRenderer({THREE,renderer,loadExhibit,disposeExhibit,getModel,getIndex,releaseSceneGPU=null}) {
  let target=null,linear=null,outputScene=null,outputMaterial=null,outputGeometry=null,pixels=null,image=null,disposed=false;
- const outputCamera=new THREE.Camera();
+ const contextCanvas=renderer.domElement,outputCamera=new THREE.Camera();
+ function requireContext(){
+  if(renderer.getContext().isContextLost())throw Object.assign(new Error('WebGL context temporarily unavailable'),{code:'MUSEUM_CONTEXT_LOST'});
+ }
  const abort=signal=>{if(disposed||signal?.aborted)throw signal?.reason||new DOMException('Studio closed','AbortError');};
  function renderPreview(scene,camera,canvas,section=false) {
   abort();
   if(typeof section!=='boolean')throw new TypeError('Invalid section option');
-  if(renderer.getContext().isContextLost())throw new Error('WebGL context unavailable');
+  requireContext();
   const width=canvas.width,height=canvas.height;
   if(!(width>0&&height>0&&width<=1024&&height<=1024))throw new RangeError('Invalid preview size');
   if(!target){
@@ -38,12 +41,12 @@ export function createStudioRenderer({THREE,renderer,loadExhibit,disposeExhibit,
    // setRenderTarget uses physical pixels; setViewport would apply screen DPR a second time.
    renderer.localClippingEnabled=section;renderer.autoClearStencil=true;
    renderer.setRenderTarget(linear);renderer.setScissorTest(false);renderer.setClearColor(0x000000,0);renderer.autoClear=true;
-   renderer.render(scene,camera);
+   renderer.render(scene,camera);requireContext();
    outputMaterial.uniforms.toneMappingExposure.value=renderer.toneMappingExposure;
-   renderer.setRenderTarget(target);renderer.render(outputScene,outputCamera);renderer.readRenderTargetPixels(target,0,0,width,height,pixels);
-  } finally {
+   renderer.setRenderTarget(target);renderer.render(outputScene,outputCamera);renderer.readRenderTargetPixels(target,0,0,width,height,pixels);requireContext();
+  } catch(error){requireContext();throw error;} finally {
    renderer.localClippingEnabled=clipping;renderer.autoClearStencil=autoStencil;renderer.autoClear=auto;
-   try{renderer.setRenderTarget(previous);renderer.setViewport(viewport);renderer.setScissor(scissor);renderer.setScissorTest(test);renderer.setClearColor(color,alpha);}finally{candidate?.dispose();}
+   try{renderer.setRenderTarget(previous);renderer.setViewport(viewport);renderer.setScissor(scissor);renderer.setScissorTest(test);renderer.setClearColor(color,alpha);}catch(error){requireContext();throw error;}finally{candidate?.dispose();}
   }
   const context=canvas.getContext('2d');if(!context)throw new Error('Canvas unavailable');
   for(let y=0;y<height;y++)image.data.set(pixels.subarray((height-1-y)*width*4,(height-y)*width*4),y*width*4);
@@ -72,5 +75,6 @@ export function createStudioRenderer({THREE,renderer,loadExhibit,disposeExhibit,
   } finally {if(owned)disposeExhibit(owned);}
  }
  function releasePreview(){target?.dispose();linear?.dispose();outputMaterial?.dispose();outputGeometry?.dispose();target=linear=outputScene=outputMaterial=outputGeometry=pixels=image=null;}
- return {renderPreview,captureExhibit,releasePreview,dispose(){disposed=true;releasePreview();}};
+ contextCanvas.addEventListener('webglcontextlost',releasePreview);
+ return {contextCanvas,releaseSceneGPU,renderPreview,captureExhibit,releasePreview,dispose(){if(disposed)return;disposed=true;contextCanvas.removeEventListener('webglcontextlost',releasePreview);releasePreview();}};
 }

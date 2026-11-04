@@ -20,7 +20,7 @@ const checks=[];
   const nodes=new Map(),moduleWait=deferred(),canvasPreview={width:0,height:0,hidden:true,getContext:()=>({putImageData(value){prepared=copy(value);}})};
   const $=selector=>{if(!nodes.has(selector))nodes.set(selector,{disabled:false,value:'',setAttribute(){}});return nodes.get(selector);};
   for(const [key,value]of Object.entries({motif:'plum',stampSize:48,width:10,density:75,stampAngle:30}))$('[data-control="'+key+'"]').value=String(value);
-  const context={Uint8ClampedArray,console:{warn(){}},active:true,suspended:false,restoring:false,stroke:null,surfacePointer:null,rotation:null,tool:'flower',compositionJob:null,
+  const context={Uint8ClampedArray,console:{warn(){}},active:true,suspended:false,restoring:false,contextUnavailable:false,stroke:null,surfacePointer:null,rotation:null,tool:'flower',compositionJob:null,
    compositionGroup:{open:true,setAttribute(){}},compositionCanvas:canvasPreview,compositionStatus:{textContent:'ready'},compositionLabels:{ready:'ready',loading:'loading',prepared:'count {count}',empty:'count 0',failed:'failed',applyFailed:'apply failed',applied:'applied'},
    compositionGenerate:{},compositionCancel:{},compositionApply:{},compositionMode:{value:'balanced'},$,history,future,textureDirty:false,saveToken:73,renderFailed:false,templateName:'plum',labels:{applied:'template applied',failed:'template failed'},t:{renderError:'render failed',painted:'painted'},
    ctx:{getImageData(){if(readFailure){readFailure=false;throw Error('read failure');}return copy(pixels);},putImageData(value){if(partialFailure){partialFailure=false;pixels.data[0]=99;throw Error('partial write failure');}pixels=copy(value);}},

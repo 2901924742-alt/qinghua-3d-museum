@@ -4,7 +4,7 @@ import {createGallery} from './gallery.js';
 import {createGestureExperience} from './gesture-experience.js';
 
 // Enhancements share the existing animation loop and never change the porcelain renderer settings.
-export function createExperience({THREE,scene,renderer,camera,controls,renderMuseum,isDesktop,hideInfo,restoreInfo,loadExhibit,disposeExhibit,onExhibitChange}) {
+export function createExperience({THREE,scene,renderer,camera,controls,renderMuseum,isDesktop,hideInfo,restoreInfo,loadExhibit,disposeExhibit,onExhibitChange,releaseSceneGPU=null}) {
  const lifetime=new AbortController(),cleanup=[];
  let disposed=false;
  const listen=(node,type,handler,options={})=>node.addEventListener(type,handler,{...options,signal:lifetime.signal});
@@ -38,7 +38,7 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
   if(disposed)throw new DOMException('Museum closed','AbortError');
   if(!studioPromise)studioPromise=import('./studio-renderer.js').then(({createStudioRenderer})=>{
    if(disposed)throw new DOMException('Museum closed','AbortError');
-   const studio=createStudioRenderer({THREE,renderer,loadExhibit,disposeExhibit,getModel:()=>model,getIndex:()=>exhibitIndex});
+   const studio=createStudioRenderer({THREE,renderer,loadExhibit,disposeExhibit,releaseSceneGPU,getModel:()=>model,getIndex:()=>exhibitIndex});
    cleanup.push(()=>studio.dispose());return {THREE,...studio};
   }).catch(error=>{studioPromise=null;throw error;});
   return studioPromise;
@@ -145,13 +145,16 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
    if(!button.hidden){button.style.left=`${x}px`;button.style.top=`${y}px`;const label=button.querySelector('span');label.style.left=x>innerWidth-170?'auto':'38px';label.style.right=x>innerWidth-170?'38px':'auto';}
   });
  }
+ function requireContext(){
+  if(renderer.getContext().isContextLost())throw Object.assign(new Error('WebGL context temporarily unavailable'),{code:'MUSEUM_CONTEXT_LOST'});
+ }
  function capture(){
   // WebGL's default drawing buffer is captured synchronously after the complete mist composition.
-  renderMuseum();const canvas=document.createElement('canvas');canvas.width=renderer.domElement.width;canvas.height=renderer.domElement.height;
+  requireContext();renderMuseum();requireContext();const canvas=document.createElement('canvas');canvas.width=renderer.domElement.width;canvas.height=renderer.domElement.height;
   canvas.getContext('2d').drawImage(renderer.domElement,0,0);return canvas;
  }
  function unwrap(){
-  if(!model)throw new Error('Model not ready');model.updateWorldMatrix(true,true);
+  requireContext();if(!model)throw new Error('Model not ready');model.updateWorldMatrix(true,true);
   const box=new THREE.Box3().setFromObject(model),center=box.getCenter(new THREE.Vector3()),height=box.max.y-box.min.y;
   const flatScene=new THREE.Scene();flatScene.background=new THREE.Color(0xeef0ec);const disposable=[];
   model.traverse(mesh=>{if(!mesh.isMesh||!mesh.material.map)return;
@@ -173,7 +176,8 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
   const flatCamera=new THREE.OrthographicCamera(-Math.PI,Math.PI,3,0,.1,10);flatCamera.position.z=2;
   const oldTarget=renderer.getRenderTarget(),oldAuto=renderer.autoClear,oldColor=renderer.getClearColor(new THREE.Color()),oldAlpha=renderer.getClearAlpha();
   const pixels=new Uint8Array(1536*768*4);
-  try{renderer.setRenderTarget(target);renderer.autoClear=true;renderer.render(flatScene,flatCamera);renderer.readRenderTargetPixels(target,0,0,1536,768,pixels);}
+  try{renderer.setRenderTarget(target);renderer.autoClear=true;renderer.render(flatScene,flatCamera);renderer.readRenderTargetPixels(target,0,0,1536,768,pixels);requireContext();}
+  catch(error){requireContext();throw error;}
   finally{renderer.setRenderTarget(oldTarget);renderer.autoClear=oldAuto;renderer.setClearColor(oldColor,oldAlpha);target.dispose();disposable.forEach(resource=>resource.dispose());}
   const canvas=document.createElement('canvas');canvas.width=1536;canvas.height=768;const context=canvas.getContext('2d'),image=context.createImageData(1536,768);
   for(let y=0;y<768;y++)image.data.set(pixels.subarray((767-y)*1536*4,(768-y)*1536*4),y*1536*4);context.putImageData(image,0,0);return canvas;

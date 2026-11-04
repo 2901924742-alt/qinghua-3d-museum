@@ -48,6 +48,13 @@ export function createCobaltBrush(canvas){
    const offset=copy*width;context.moveTo(polygon[0][0]+offset,polygon[0][1]);
    for(let i=1;i<polygon.length;i++)context.lineTo(polygon[i][0]+offset,polygon[i][1]);
    context.closePath();
+   if(stroke.brushMirror){
+    // Reflection reverses winding. Reverse the vertices too so overlapping
+    // outlines form one opaque ink union instead of cancelling at the axis.
+    const end=polygon.length-1;context.moveTo(width-(polygon[end][0]+offset),polygon[end][1]);
+    for(let i=end-1;i>=0;i--)context.lineTo(width-(polygon[i][0]+offset),polygon[i][1]);
+    context.closePath();
+   }
   }
   context.fill();
  }
@@ -57,11 +64,11 @@ export function createCobaltBrush(canvas){
   const polygon=outline(true,false);fill(committedContext,polygon);
   stroke.points=stroke.points.slice(-2);
  }
- function begin(value,{base,width:brushWidth,density,pen=false}={}){
-  if(disposed||stroke||!base||base.width!==width||base.height!==height||!(base.data instanceof Uint8ClampedArray)||base.data.length!==width*height*4||!finite(brushWidth)||brushWidth<2||brushWidth>28||!finite(density)||density<20||density>100)return false;
+ function begin(value,{base,width:brushWidth,density,pen=false,brushMirror=false}={}){
+  if(disposed||stroke||!base||base.width!==width||base.height!==height||!(base.data instanceof Uint8ClampedArray)||base.data.length!==width*height*4||!finite(brushWidth)||brushWidth<2||brushWidth>28||!finite(density)||density<20||density>100||typeof brushMirror!=='boolean')return false;
   const first=point(value,pen===true);if(!first)return false;
   prepareMasks();reset(committedContext);reset(activeContext);
-  stroke={base,width:brushWidth,density:density/100,pen:pen===true,points:[first],dirty:true};return true;
+  stroke={base,width:brushWidth,density:density/100,pen:pen===true,brushMirror,points:[first],dirty:true};return true;
  }
  function move(value){
   if(disposed||!stroke)return false;

@@ -14,6 +14,11 @@ const patternWords={
  en:{tools:'Drawing tools',stamp:'Motif stamp',ring:'Outline circle',disc:'Filled circle',band:'Wraparound band',motif:'Stamp motif',flower:'Eight-petal flower',plum:'Plum blossom',bamboo:'Bamboo leaves',cloud:'Cloud scroll',size:'Motif size',sample:'Magnified stamp',stampAngle:'Stamp angle',stampRepeat:'Wraparound repeat',single:'Single stamp',repeatUnit:'stamps',width:'Brush / outline width',hint:'Choose a motif, angle and repeat count, then tap the canvas or vessel. Undo the whole group in one step. Circles can repeat; a band is drawn once. Size and outline width are separate. The magnified sample does not show the actual stamp size.',templates:'Whole-vessel templates',templateNote:'Choose a preview, then Apply template. It replaces the pattern, keeps your vessel and can be undone. These are original decorative interpretations.',floral:'Floral vines',plumPreset:'Plum lattice',border:'Cloud borders',apply:'Apply template (undo available)',applied:'Template applied. Undo it, add stamps or keep painting.',failed:'The template could not be applied. Your existing pattern is kept. Please retry.'}
 };
 
+const brushWords={
+ zh:{mode:'毛笔模式',normal:'常规',mirror:'左右镜像',hint:'左右镜像沿纹样画布中线对称，也适用于器壁落笔；转动器形不会改变对称轴。一笔可一步撤销。'},
+ en:{mode:'Brush mode',normal:'Normal',mirror:'Left-right mirror',hint:'Mirror across the flat pattern centre, also when painting on the vessel. Rotating the vessel keeps this axis fixed. Undo each stroke in one step.'}
+};
+
 const fourViewWords={
  zh:{button:'一器四观 PNG',title:'一器四观 · 青花创作',direction:'设计方位',note:'按固定设计方位0°／90°／180°／270°合成，并附展开纹样。',unavailable:'四观暂不可用，可先用原海报保存平面纹样。'},
  en:{button:'Create four-view PNG',title:'One vessel, four views',direction:'Design direction',note:'Four fixed design directions (0° / 90° / 180° / 270°) with the flat pattern.',unavailable:'The four-view image is unavailable. Use the artwork poster to save the flat pattern.'}
@@ -29,10 +34,10 @@ const artworkWords={
  en:{title:'Save / open artwork',save:'Save editable artwork',download:'Download artwork JSON',open:'Open artwork JSON',note:'Artwork JSON keeps the vessel, painting, current tools and glaze, without layers or earlier undo steps. Opening replaces this painting document; save it first. A parent shape-studio design stays unchanged. Files are read locally, with no upload.',ready:'Save an artwork file to continue on another device.',preparing:'Checking the artwork file…',saved:'Artwork file ready. Download it to keep it.',imported:'Artwork opened and saved as the local draft. Continue creating.',unsaved:'Artwork opened, but the local draft could not be saved. Download artwork JSON to keep it safe.',failed:'Could not open the file. Your current artwork and previous draft are kept. Use a valid workshop artwork JSON (up to 1.7 MB). Older browsers may need a current system browser.',cancelled:'Opening cancelled. Your current artwork is kept.',saveFailed:'Could not create the artwork file. Your painting is kept. Please retry.',changed:'Artwork changed. Save a fresh artwork file.'}
 };
 
-export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSON=null,createPotteryModel=null}) {
- const t=words[language]||words.zh,labels=patternWords[language]||patternWords.zh,files=artworkWords[language]||artworkWords.zh,compositionLabels=compositionWords[language]||compositionWords.zh,viewWords=fourViewWords[language]||fourViewWords.zh,lifetime=new AbortController(),history=boundedHistory(12),future=boundedHistory(12),root=document.createElement('section');
+export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSON=null,createPotteryModel=null,contextCanvas=null,releaseSceneGPU=null}) {
+ const t=words[language]||words.zh,labels=patternWords[language]||patternWords.zh,files=artworkWords[language]||artworkWords.zh,compositionLabels=compositionWords[language]||compositionWords.zh,viewWords=fourViewWords[language]||fourViewWords.zh,brushLabels=brushWords[language]||brushWords.zh,lifetime=new AbortController(),history=boundedHistory(12),future=boundedHistory(12),root=document.createElement('section');
  root.className='innovation-paint';root.dataset.testid='paintStudio';root.dataset.brush='classic';root.dataset.previewMode='rotate';root.setAttribute('aria-busy','false');
- root.innerHTML=`<h3>${t.title}</h3><p>${t.intro}</p><p class="innovation-note">${t.note}</p><div class="paint-shape-controls"><p class="innovation-shape-status innovation-note" data-testid="paintShapeNote" role="status">${t.shapeClassic}</p><button type="button" data-action="classicShape" hidden>${t.classicShape}</button></div><div class="paint-template-picker"><h4>${labels.templates}</h4><p class="innovation-note">${labels.templateNote}</p><div class="paint-template-options" role="group" aria-label="${labels.templates}">${['floral','plum','border'].map((name,index)=>`<button type="button" data-template="${name}" aria-pressed="${index===0}"><canvas width="144" height="72" aria-hidden="true"></canvas><span>${labels[name==='plum'?'plumPreset':name]}</span></button>`).join('')}</div><button type="button" data-action="applyTemplate">${labels.apply}</button></div><div class="innovation-toolbar" role="group" aria-label="${labels.tools}"><button type="button" data-tool="brush" aria-pressed="true">${t.brush}</button><button type="button" data-tool="flower" aria-pressed="false">${labels.stamp}</button><button type="button" data-tool="ring" aria-pressed="false">${labels.ring}</button><button type="button" data-tool="disc" aria-pressed="false">${labels.disc}</button><button type="button" data-tool="band" aria-pressed="false">${labels.band}</button></div><div class="paint-tool-settings"><label class="innovation-field" data-motif-field hidden>${labels.motif}<select data-control="motif">${['flower','plum','bamboo','cloud'].map(name=>`<option value="${name}">${labels[name]}</option>`).join('')}</select></label><label class="innovation-field" data-size-field hidden>${labels.size}<input data-control="stampSize" type="range" min="16" max="96" value="48"><output data-value="stampSize">48</output></label><label class="innovation-field" data-stamp-angle-field hidden>${labels.stampAngle}<input data-control="stampAngle" type="range" min="-180" max="180" step="1" value="0"><output data-value="stampAngle">0°</output></label><label class="innovation-field" data-repeat-field hidden>${labels.stampRepeat}<select data-control="stampRepeat">${[1,4,6,8,12].map(count=>`<option value="${count}">${count===1?labels.single:count+" "+labels.repeatUnit}</option>`).join('')}</select></label><label class="innovation-field">${labels.width}<input data-control="width" type="range" min="2" max="28" value="10"><output data-value="width">10</output></label><label class="innovation-field">${t.density}<input data-control="density" type="range" min="20" max="100" value="75"><output data-value="density">75%</output></label></div><div class="paint-tool-help"><figure class="paint-stamp-sample" data-testid="paintStampSampleGroup" hidden><canvas data-testid="paintStampSample" width="192" height="192" aria-hidden="true"></canvas><figcaption>${labels.sample}</figcaption></figure><p class="innovation-note" data-testid="paintToolHint">${labels.hint}</p></div><div class="innovation-studio-grid"><div class="innovation-canvas-wrap"><h4>${t.flat}</h4><canvas data-testid="paintCanvas" width="512" height="256" tabindex="0" aria-label="${t.flat}"></canvas></div><div class="innovation-canvas-wrap"><h4>${t.preview}</h4><canvas data-testid="paintPreview" width="512" height="512" aria-label="${t.preview}"></canvas><div class="innovation-actions"><button type="button" data-preview-mode="rotate" aria-pressed="true">${t.rotateMode}</button><button type="button" data-preview-mode="surface" aria-pressed="false">${t.surfaceMode}</button></div><p class="innovation-note" data-testid="paintSurfaceNote">${t.rotateHint}</p><label class="innovation-field">${t.angle}<input data-control="angle" type="range" min="-180" max="180" value="0"></label></div></div><div class="innovation-actions"><button type="button" data-action="undo" disabled>${t.undo}</button><button type="button" data-action="redo" disabled>${t.redo}</button><button type="button" data-action="clear">${t.clear}</button><button type="button" data-action="glaze">${t.glaze}</button><button type="button" data-action="poster">${t.poster}</button><button type="button" data-action="fourViews">${viewWords.button}</button><a data-action="download" class="download" hidden>${t.download}</a><button type="button" data-action="exportGLB">${t.exportGLB}</button><a data-action="glbDownload" class="download" hidden>${t.glbDownload}</a></div><p class="innovation-note" data-testid="paintFourViewNote">${viewWords.note}</p><p class="innovation-note">${t.glbNote}</p><p class="innovation-note" data-testid="paintGLBStatus" role="status" aria-live="polite">${t.glbReady}</p><p class="innovation-status" role="status" aria-live="polite">${t.ready}</p><p class="innovation-note">${t.draftNote}</p><p class="innovation-draft-status innovation-note" role="status" aria-live="polite">${t.draftReady}</p><img data-testid="paintPoster" alt="${t.posterAlt}" hidden>`;
+ root.innerHTML=`<h3>${t.title}</h3><p>${t.intro}</p><p class="innovation-note">${t.note}</p><div class="paint-shape-controls"><p class="innovation-shape-status innovation-note" data-testid="paintShapeNote" role="status">${t.shapeClassic}</p><button type="button" data-action="classicShape" hidden>${t.classicShape}</button></div><div class="paint-template-picker"><h4>${labels.templates}</h4><p class="innovation-note">${labels.templateNote}</p><div class="paint-template-options" role="group" aria-label="${labels.templates}">${['floral','plum','border'].map((name,index)=>`<button type="button" data-template="${name}" aria-pressed="${index===0}"><canvas width="144" height="72" aria-hidden="true"></canvas><span>${labels[name==='plum'?'plumPreset':name]}</span></button>`).join('')}</div><button type="button" data-action="applyTemplate">${labels.apply}</button></div><div class="innovation-toolbar" role="group" aria-label="${labels.tools}"><button type="button" data-tool="brush" aria-pressed="true">${t.brush}</button><button type="button" data-tool="flower" aria-pressed="false">${labels.stamp}</button><button type="button" data-tool="ring" aria-pressed="false">${labels.ring}</button><button type="button" data-tool="disc" aria-pressed="false">${labels.disc}</button><button type="button" data-tool="band" aria-pressed="false">${labels.band}</button></div><div class="paint-tool-settings"><label class="innovation-field" data-brush-mirror-field>${brushLabels.mode}<select data-control="brushMirror"><option value="none">${brushLabels.normal}</option><option value="mirror">${brushLabels.mirror}</option></select></label><label class="innovation-field" data-motif-field hidden>${labels.motif}<select data-control="motif">${['flower','plum','bamboo','cloud'].map(name=>`<option value="${name}">${labels[name]}</option>`).join('')}</select></label><label class="innovation-field" data-size-field hidden>${labels.size}<input data-control="stampSize" type="range" min="16" max="96" value="48"><output data-value="stampSize">48</output></label><label class="innovation-field" data-stamp-angle-field hidden>${labels.stampAngle}<input data-control="stampAngle" type="range" min="-180" max="180" step="1" value="0"><output data-value="stampAngle">0°</output></label><label class="innovation-field" data-repeat-field hidden>${labels.stampRepeat}<select data-control="stampRepeat">${[1,4,6,8,12].map(count=>`<option value="${count}">${count===1?labels.single:count+" "+labels.repeatUnit}</option>`).join('')}</select></label><label class="innovation-field">${labels.width}<input data-control="width" type="range" min="2" max="28" value="10"><output data-value="width">10</output></label><label class="innovation-field">${t.density}<input data-control="density" type="range" min="20" max="100" value="75"><output data-value="density">75%</output></label></div><div class="paint-tool-help"><figure class="paint-stamp-sample" data-testid="paintStampSampleGroup" hidden><canvas data-testid="paintStampSample" width="192" height="192" aria-hidden="true"></canvas><figcaption>${labels.sample}</figcaption></figure><p class="innovation-note" data-testid="paintToolHint">${labels.hint}</p></div><div class="innovation-studio-grid"><div class="innovation-canvas-wrap"><h4>${t.flat}</h4><canvas data-testid="paintCanvas" width="512" height="256" tabindex="0" aria-label="${t.flat}"></canvas></div><div class="innovation-canvas-wrap"><h4>${t.preview}</h4><canvas data-testid="paintPreview" width="512" height="512" aria-label="${t.preview}"></canvas><div class="innovation-actions"><button type="button" data-preview-mode="rotate" aria-pressed="true">${t.rotateMode}</button><button type="button" data-preview-mode="surface" aria-pressed="false">${t.surfaceMode}</button></div><p class="innovation-note" data-testid="paintSurfaceNote">${t.rotateHint}</p><label class="innovation-field">${t.angle}<input data-control="angle" type="range" min="-180" max="180" value="0"></label></div></div><div class="innovation-actions"><button type="button" data-action="undo" disabled>${t.undo}</button><button type="button" data-action="redo" disabled>${t.redo}</button><button type="button" data-action="clear">${t.clear}</button><button type="button" data-action="glaze">${t.glaze}</button><button type="button" data-action="poster">${t.poster}</button><button type="button" data-action="fourViews">${viewWords.button}</button><a data-action="download" class="download" hidden>${t.download}</a><button type="button" data-action="exportGLB">${t.exportGLB}</button><a data-action="glbDownload" class="download" hidden>${t.glbDownload}</a></div><p class="innovation-note" data-testid="paintFourViewNote">${viewWords.note}</p><p class="innovation-note">${t.glbNote}</p><p class="innovation-note" data-testid="paintGLBStatus" role="status" aria-live="polite">${t.glbReady}</p><p class="innovation-status" role="status" aria-live="polite">${t.ready}</p><p class="innovation-note">${t.draftNote}</p><p class="innovation-draft-status innovation-note" role="status" aria-live="polite">${t.draftReady}</p><img data-testid="paintPoster" alt="${t.posterAlt}" hidden>`;
  const filePanel=document.createElement('details');filePanel.className='paint-file-panel';
  filePanel.innerHTML=`<summary>${files.title}</summary><p class="innovation-note">${files.note}</p><div class="innovation-actions"><button type="button" data-action="saveArtwork">${files.save}</button><a class="download" data-action="artworkDownload" hidden>${files.download}</a><label class="pottery-file-button">${files.open}<input type="file" accept=".json,application/json" data-action="importArtwork" aria-label="${files.open}"></label></div><p class="innovation-note" data-testid="paintArtworkStatus" role="status" aria-live="polite">${files.ready}</p>`;
  root.querySelector('.paint-shape-controls').before(filePanel);
@@ -40,12 +45,13 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
  compositionGroup.innerHTML=`<summary>${compositionLabels.title}</summary><p class="innovation-note">${compositionLabels.note}</p><label class="innovation-field">${compositionLabels.mode}<select data-control="compositionMode">${['sparse','balanced','rich'].map(mode=>`<option value="${mode}"${mode==='balanced'?' selected':''}>${compositionLabels[mode]}</option>`).join('')}</select></label><div class="innovation-actions"><button type="button" data-action="generateComposition">${compositionLabels.generate}</button><button type="button" data-action="cancelComposition" disabled>${compositionLabels.cancel}</button><button type="button" data-action="applyComposition" disabled>${compositionLabels.apply}</button></div><p class="innovation-note" data-testid="paintCompositionStatus" role="status" aria-live="polite">${compositionLabels.ready}</p><canvas data-testid="paintCompositionPreview" width="0" height="0" role="img" aria-label="${compositionLabels.alt}" hidden></canvas>`;
  root.querySelector('.paint-tool-help').after(compositionGroup);
  container.append(root);
+ const contextStatus=document.createElement('p');contextStatus.className='innovation-note';contextStatus.dataset.testid='paintContextStatus';contextStatus.hidden=true;contextStatus.setAttribute('role','status');contextStatus.setAttribute('aria-live','polite');contextStatus.textContent=language==='en'?'The 3D preview is temporarily unavailable. Your artwork remains on this page. Keep painting on the flat canvas, and save artwork JSON separately.':'三维预览暂不可用，画稿仍在当前页面。可继续平面绘制，并先另存作品 JSON。';root.querySelector('.innovation-status').before(contextStatus);
  const $=selector=>root.querySelector(selector),canvas=$('[data-testid="paintCanvas"]'),preview=$('[data-testid="paintPreview"]'),ctx=canvas.getContext('2d',{willReadFrequently:true}),status=$('.innovation-status'),undo=$('[data-action="undo"]'),redo=$('[data-action="redo"]'),draftStatus=$('.innovation-draft-status'),glaze=$('[data-action="glaze"]'),poster=$('[data-action="poster"]'),download=$('[data-action="download"]'),posterImage=$('[data-testid="paintPoster"]'),angle=$('[data-control="angle"]'),shapeNote=$('[data-testid="paintShapeNote"]'),classicButton=$('[data-action="classicShape"]');
  const listen=(node,type,handler)=>node.addEventListener(type,handler,{signal:lifetime.signal});
  for(const item of root.querySelectorAll('button,input,select,a'))item.style.minHeight='44px';
  for(const item of [canvas,preview]){item.style.width='100%';item.style.height='auto';item.style.display='block';item.style.touchAction='none';}
  canvas.style.aspectRatio='2 / 1';preview.style.aspectRatio='1';canvas.style.background='#faf7ed';preview.style.background='#0b1426';preview.tabIndex=0;
- let active=true,scene,camera,vase,texture,material,pedestal,geometry,pedestalGeometry,pedestalMaterial,tool='brush',stroke=null,rotation=null,renderTimer=null,glazeTimer=null,lastRender=-Infinity,renderFailed=false,textureDirty=true,downloadURL=null,saveToken=0;
+ let active=true,scene,camera,vase,texture,material,pedestal,geometry,pedestalGeometry,pedestalMaterial,tool='brush',stroke=null,rotation=null,renderTimer=null,glazeTimer=null,lastRender=-Infinity,renderFailed=false,contextUnavailable=false,textureDirty=true,downloadURL=null,saveToken=0;
  let draftTimer=null,restoreTimer=null,restoreImage=null,restoring=false,draftDirty=false,glazed=false,currentAngle=0;
  let shapeOwner=null,currentShapeJSON=null,shapeUnavailable=false,draftProtected=false;
  let brushFactory=null,naturalBrush=null,brushDisabled=false,inkRAF=null,inkDirty=false;
@@ -57,7 +63,7 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
  const setStatus=text=>{status.textContent=text;};
  function fillBlank(){ctx.fillStyle='#faf7ed';ctx.fillRect(0,0,512,256);textureDirty=true;}
  function invalidatePoster(){saveToken++;download.hidden=true;download.removeAttribute('href');posterImage.hidden=true;posterImage.removeAttribute('src');if(downloadURL){URL.revokeObjectURL(downloadURL);downloadURL=null;}invalidateGLB();}
- function updatePosterControls(){const busy=restoring||posterJobToken!==null;poster.disabled=busy;$('[data-action="fourViews"]').disabled=busy||shapeUnavailable||renderFailed;}
+ function updatePosterControls(){const busy=restoring||posterJobToken!==null||contextUnavailable;poster.disabled=busy;$('[data-action="fourViews"]').disabled=busy||shapeUnavailable||renderFailed;}
  function updateGLBControls(){$('[data-action="exportGLB"]').disabled=restoring||shapeUnavailable||glbJob!==null;}
  function invalidateGLB(){
   glbToken++;const hadOutput=glbJob!==null||glbURL!==null,link=$('[data-action="glbDownload"]');link.hidden=true;link.removeAttribute('href');if(glbURL){URL.revokeObjectURL(glbURL);glbURL=null;}
@@ -121,13 +127,14 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
   try{commitPatternPixels(compositionJob.result);compositionStatus.textContent=compositionLabels.applied;setStatus(renderFailed?t.renderError:compositionLabels.applied);}
   catch(error){compositionStatus.textContent=compositionLabels.applyFailed;console.warn('Composition apply unavailable; painting retained:',error);}
  }
- function paintSettings(){return {tool:tool==='brush'?'brush':'flower',stamp:tool==='brush'?undefined:tool==='flower'?$('[data-control="motif"]').value:tool,stampSize:Number($('[data-control="stampSize"]').value),stampAngle:Number($('[data-control="stampAngle"]').value),stampRepeat:Number($('[data-control="stampRepeat"]').value),brushWidth:Number($('[data-control="width"]').value),density:Number($('[data-control="density"]').value),angle:currentAngle,glazed};}
+ function paintSettings(){return {tool:tool==='brush'?'brush':'flower',stamp:tool==='brush'?undefined:tool==='flower'?$('[data-control="motif"]').value:tool,stampSize:Number($('[data-control="stampSize"]').value),stampAngle:Number($('[data-control="stampAngle"]').value),stampRepeat:Number($('[data-control="stampRepeat"]').value),brushWidth:Number($('[data-control="width"]').value),density:Number($('[data-control="density"]').value),brushMirror:$('[data-control="brushMirror"]').value==='mirror',angle:currentAngle,glazed};}
  function artworkRaw(){return stringifyPaintDraft({...paintSettings(),png:canvas.toDataURL('image/png'),shapeJSON:currentShapeJSON});}
  function applyPaintSettings(draft){
   cancelComposition();
   tool=['ring','disc','band'].includes(draft.stamp)?draft.stamp:draft.tool;
   $('[data-control="motif"]').value=['flower','plum','bamboo','cloud'].includes(draft.stamp)?draft.stamp:'flower';
   for(const [name,value] of [['stampSize',draft.stampSize??48],['stampAngle',draft.stampAngle??0],['stampRepeat',draft.stampRepeat??1],['width',draft.brushWidth],['density',draft.density]])$(`[data-control="${name}"]`).value=String(value);
+  $('[data-control="brushMirror"]').value=draft.brushMirror===true?'mirror':'none';
   updateToolControls();currentAngle=draft.angle;angle.value=String(currentAngle);vase.rotation.y=Math.PI+currentAngle*Math.PI/180;glazed=draft.glazed;stableGlaze();
   for(const item of root.querySelectorAll('[data-tool]'))item.setAttribute('aria-pressed',String(item.dataset.tool===tool));
  }
@@ -288,7 +295,7 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
   try{
    scratch.width=scratch.height=512;if(textureDirty)texture.needsUpdate=true;
    for(let index=0;index<4;index++){
-    vase.rotation.copy(savedRotation);vase.rotation.y=Math.PI+index*Math.PI/2;renderPreview(scene,camera,scratch);
+    vase.rotation.copy(savedRotation);vase.rotation.y=Math.PI+index*Math.PI/2;renderPreview(scene,camera,scratch);if(contextUnavailable)throw Object.assign(new Error('Preview context unavailable'),{code:'MUSEUM_CONTEXT_LOST'});
     const x=index%2===0?80:688,y=index<2?168:736;draw.drawImage(scratch,x,y,512,512);draw.fillStyle='#a9c9ff';draw.font='22px sans-serif';draw.fillText(viewWords.direction+' '+index*90+'°',x,y+544);
    }
   }finally{
@@ -296,10 +303,10 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
   }
  }
  async function exportPNG(fourViews=false){
-  if(!active||restoring||posterJobToken!==null)return;if(fourViews&&(renderFailed||shapeUnavailable)){setStatus(viewWords.unavailable);return;}
+  if(!active||restoring||contextUnavailable||posterJobToken!==null)return;if(fourViews&&(renderFailed||shapeUnavailable)){setStatus(viewWords.unavailable);return;}
   finishStroke();finishRotation();stopGlaze();const token=++saveToken;posterJobToken=token;updatePosterControls();let sheet=null;
   try{
-   if(!fourViews&&!renderFailed&&!shapeUnavailable)render();sheet=document.createElement('canvas');sheet.width=1280;sheet.height=fourViews?1664:900;const draw=sheet.getContext('2d');if(!draw)throw new Error('Canvas 2D unavailable');
+   if(!fourViews&&!renderFailed&&!shapeUnavailable){render();if(contextUnavailable)return;}sheet=document.createElement('canvas');sheet.width=1280;sheet.height=fourViews?1664:900;const draw=sheet.getContext('2d');if(!draw)throw new Error('Canvas 2D unavailable');
    draw.fillStyle='#0b1426';draw.fillRect(0,0,1280,sheet.height);draw.strokeStyle='#7da8eb';draw.lineWidth=2;draw.strokeRect(24,24,1232,sheet.height-48);draw.fillStyle='#eaf2ff';draw.font='bold 42px sans-serif';draw.fillText(fourViews?viewWords.title:t.posterTitle,64,95);draw.fillStyle='#a9c9ff';draw.font='22px sans-serif';draw.fillText(t.posterSub,64,137);
    if(fourViews){
     captureFourViews(draw);draw.fillStyle='#a9c9ff';draw.font='22px sans-serif';draw.fillText(t.flat,384,1304);draw.drawImage(canvas,384,1320,512,256);draw.strokeStyle='#7da8eb';draw.strokeRect(382,1318,516,260);draw.fillStyle='#aebbd0';draw.font='18px sans-serif';draw.fillText(shapeOwner?t.posterShapeFoot:t.posterFoot,64,1626,1152);
@@ -309,17 +316,35 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
    }
    const blob=await new Promise((resolve,reject)=>sheet.toBlob(value=>value?resolve(value):reject(new Error('PNG encoding failed')),'image/png'));if(!active||token!==saveToken)return;
    const nextURL=URL.createObjectURL(blob);if(downloadURL)URL.revokeObjectURL(downloadURL);downloadURL=nextURL;download.href=downloadURL;download.download=fourViews?'qinghua-four-views.png':'qinghua-user-creation.png';download.hidden=false;posterImage.src=downloadURL;posterImage.hidden=false;setStatus(t.saved);
-  }catch(error){if(active&&token===saveToken)setStatus(t.saveError);console.warn('Paint poster unavailable:',error);}
+  }catch(error){if(error?.code==='MUSEUM_CONTEXT_LOST')loseContext();else{if(active&&token===saveToken)setStatus(t.saveError);console.warn('Paint poster unavailable:',error);}}
   finally{if(sheet)sheet.width=sheet.height=0;if(posterJobToken===token){posterJobToken=null;if(active)updatePosterControls();}}
  }
  function render(){
-  renderTimer=null;if(!active||suspended||!scene||renderFailed||shapeUnavailable)return;
-  try{if(textureDirty){texture.needsUpdate=true;textureDirty=false;}renderPreview(scene,camera,preview);lastRender=performance.now();}catch(error){renderFailed=true;updateSurfaceControls();updatePosterControls();setStatus(t.renderError);console.warn('Paint preview unavailable:',error);}
+  renderTimer=null;if(!active||suspended||!scene||renderFailed||shapeUnavailable||contextUnavailable)return;
+  try{if(textureDirty){texture.needsUpdate=true;textureDirty=false;}renderPreview(scene,camera,preview);lastRender=performance.now();}catch(error){if(error?.code==='MUSEUM_CONTEXT_LOST'){loseContext();return;}renderFailed=true;updateSurfaceControls();updatePosterControls();setStatus(t.renderError);console.warn('Paint preview unavailable:',error);}
  }
- function scheduleRender(){if(!active||suspended||renderFailed||renderTimer!==null)return;const delay=Math.max(0,125-(performance.now()-lastRender));if(delay===0)render();else renderTimer=setTimeout(render,delay);}
- function drawBrush(from,to,width,density){
+ function scheduleRender(){if(!active||suspended||renderFailed||contextUnavailable||renderTimer!==null)return;const delay=Math.max(0,125-(performance.now()-lastRender));if(delay===0)render();else renderTimer=setTimeout(render,delay);}
+ function loseContext(){
+  if(!active||contextUnavailable)return;contextUnavailable=true;contextStatus.hidden=false;if(renderTimer!==null)clearTimeout(renderTimer);renderTimer=null;
+  finishStroke();finishRotation();stopGlaze();releaseSceneGPU?.(scene);updateSurfaceControls();updatePosterControls();
+ }
+ function restoreContext(){if(!active)return;contextUnavailable=false;textureDirty=true;contextStatus.hidden=true;updateSurfaceControls();updatePosterControls();scheduleRender();}
+ function drawBrush(from,to,width,density,brushMirror=false){
   ctx.strokeStyle=`rgba(31,63,143,${density/100})`;ctx.lineWidth=width;ctx.lineCap='round';ctx.lineJoin='round';
-  for(const offset of [-512,0,512]){ctx.beginPath();ctx.moveTo(from.x+offset,from.y);ctx.lineTo(to.x+offset,to.y);ctx.stroke();}
+  const first=Math.ceil(-(Math.max(from.x,to.x)+width/2)/512),last=Math.floor((512-Math.min(from.x,to.x)+width/2)/512);
+  if(brushMirror){
+   ctx.beginPath();
+   for(let copy=first;copy<=last;copy++){
+    const offset=copy*512,mirrorFrom=512-from.x-offset,mirrorTo=512-to.x-offset;ctx.moveTo(from.x+offset,from.y);ctx.lineTo(to.x+offset,to.y);
+    let coincident=false;
+    for(let normal=first;normal<=last;normal++){
+     const normalFrom=from.x+normal*512,normalTo=to.x+normal*512;
+     if(normalFrom===mirrorFrom&&normalTo===mirrorTo||from.y===to.y&&normalFrom===mirrorTo&&normalTo===mirrorFrom){coincident=true;break;}
+    }
+    if(!coincident){ctx.moveTo(mirrorFrom,from.y);ctx.lineTo(mirrorTo,to.y);}
+   }
+   ctx.stroke();
+  }else for(let copy=first;copy<=last;copy++){const offset=copy*512;ctx.beginPath();ctx.moveTo(from.x+offset,from.y);ctx.lineTo(to.x+offset,to.y);ctx.stroke();}
   textureDirty=true;
  }
  function disableBrush(error){
@@ -328,7 +353,7 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
   try{naturalBrush?.dispose();}catch{}naturalBrush=null;
   console.warn('Natural brush unavailable; standard brush remains available:',error);
  }
- function fallbackInk(){if(!stroke||stroke.tool!=='brush'||!stroke.last)return;const from=stroke.rendered||stroke.last,to=from.x===stroke.last.x&&from.y===stroke.last.y?{x:stroke.last.x+.01,y:stroke.last.y}:stroke.last;drawBrush(from,to,stroke.width,stroke.density);stroke.rendered=stroke.last;}
+ function fallbackInk(){if(!stroke||stroke.tool!=='brush'||!stroke.last)return;const from=stroke.rendered||stroke.last,to=from.x===stroke.last.x&&from.y===stroke.last.y?{x:stroke.last.x+.01,y:stroke.last.y}:stroke.last;drawBrush(from,to,stroke.width,stroke.density,stroke.brushMirror);stroke.rendered=stroke.last;}
  function flushInk(){
   if(inkRAF!==null)cancelAnimationFrame(inkRAF);inkRAF=null;
   if(!active||!stroke||!inkDirty)return;inkDirty=false;
@@ -342,24 +367,24 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
   point.pressure=pen&&Number.isFinite(event.pressure)?Math.max(0,Math.min(1,event.pressure)):.5;
   return point;
  }
- function surfaceAvailable(){return !restoring&&!renderFailed&&!shapeUnavailable&&!surfaceDisabled;}
+ function surfaceAvailable(){return !restoring&&!renderFailed&&!shapeUnavailable&&!surfaceDisabled&&!contextUnavailable;}
  function updateSurfaceControls(){
-  const available=surfaceAvailable();$('[data-preview-mode="surface"]').disabled=!available;$('[data-preview-mode="rotate"]').disabled=restoring;
+  const available=surfaceAvailable();$('[data-preview-mode="surface"]').disabled=!available;$('[data-preview-mode="rotate"]').disabled=restoring||contextUnavailable;
   $('[data-testid="paintSurfaceNote"]').textContent=renderFailed||shapeUnavailable?t.surfaceUnavailable:surfaceDisabled?t.surfaceFailed:previewMode==='surface'?t.surfaceHint:t.rotateHint;
   preview.style.cursor=previewMode==='surface'&&available?'crosshair':'grab';preview.setAttribute('aria-disabled',String(!available&&previewMode==='surface'));
  }
  function beginPaint(point,event,source){
   if(restoring||suspended||stroke)return;stopGlaze();const base=snapshot(),owner=source==='surface'?preview:canvas;
-  stroke={id:event.pointerId,source,owner,last:point,rendered:point,tool,width:Number($('[data-control="width"]').value),density:Number($('[data-control="density"]').value),pen:event.pointerType==='pen',brush:null,motif:$('[data-control="motif"]').value,size:Number($('[data-control="stampSize"]').value),rotation:Number($('[data-control="stampAngle"]').value),repeat:Number($('[data-control="stampRepeat"]').value)};try{owner.setPointerCapture(event.pointerId);}catch{}
+  stroke={id:event.pointerId,source,owner,last:point,rendered:point,tool,width:Number($('[data-control="width"]').value),density:Number($('[data-control="density"]').value),brushMirror:$('[data-control="brushMirror"]').value==='mirror',pen:event.pointerType==='pen',brush:null,motif:$('[data-control="motif"]').value,size:Number($('[data-control="stampSize"]').value),rotation:Number($('[data-control="stampAngle"]').value),repeat:Number($('[data-control="stampRepeat"]').value)};try{owner.setPointerCapture(event.pointerId);}catch{}
   if(stroke.tool!=='brush'){stamp(point,stroke);scheduleRender();return;}
-  if(brushFactory&&!brushDisabled)try{naturalBrush ||= brushFactory(canvas);if(!naturalBrush.begin(point,{base,width:stroke.width,density:stroke.density,pen:stroke.pen}))throw new Error('Natural brush could not start');stroke.brush=naturalBrush;}catch(error){disableBrush(error);}
-  if(stroke.brush)scheduleInk();else{drawBrush(point,{x:point.x+.01,y:point.y},stroke.width,stroke.density);scheduleRender();}
+  if(brushFactory&&!brushDisabled)try{naturalBrush ||= brushFactory(canvas);if(!naturalBrush.begin(point,{base,width:stroke.width,density:stroke.density,pen:stroke.pen,brushMirror:stroke.brushMirror}))throw new Error('Natural brush could not start');stroke.brush=naturalBrush;}catch(error){disableBrush(error);}
+  if(stroke.brush)scheduleInk();else{drawBrush(point,{x:point.x+.01,y:point.y},stroke.width,stroke.density,stroke.brushMirror);scheduleRender();}
  }
  function movePaint(point){
   if(!stroke)return;
   if(stroke.tool==='brush'){
-   if(stroke.brush)try{if(stroke.brush.move(point))scheduleInk();}catch(error){disableBrush(error);const from=stroke.rendered||stroke.last||point;drawBrush(from,from===point?{x:point.x+.01,y:point.y}:point,stroke.width,stroke.density);stroke.rendered=point;scheduleRender();}
-   else{const from=stroke.last||point;drawBrush(from,stroke.last?point:{x:point.x+.01,y:point.y},stroke.width,stroke.density);stroke.rendered=point;scheduleRender();}
+   if(stroke.brush)try{if(stroke.brush.move(point))scheduleInk();}catch(error){disableBrush(error);const from=stroke.rendered||stroke.last||point;drawBrush(from,from===point?{x:point.x+.01,y:point.y}:point,stroke.width,stroke.density,stroke.brushMirror);stroke.rendered=point;scheduleRender();}
+   else{const from=stroke.last||point;drawBrush(from,stroke.last?point:{x:point.x+.01,y:point.y},stroke.width,stroke.density,stroke.brushMirror);stroke.rendered=point;scheduleRender();}
   }
   stroke.last=point;
  }
@@ -412,6 +437,7 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
  }
  function updateToolControls(){
   compositionGroup.hidden=tool!=='flower';updateCompositionControls();
+  $('[data-brush-mirror-field]').hidden=tool!=='brush';$('[data-testid="paintToolHint"]').textContent=tool==='brush'?brushLabels.hint:labels.hint;
   $('[data-motif-field]').hidden=tool!=='flower';$('[data-size-field]').hidden=tool==='brush'||tool==='band';$('[data-stamp-angle-field]').hidden=tool!=='flower';$('[data-repeat-field]').hidden=tool==='brush'||tool==='band';
   for(const name of ['width','stampSize','density','stampAngle'])$(`[data-value="${name}"]`).textContent=$(`[data-control="${name}"]`).value+(name==='density'?'%':name==='stampAngle'?'°':'');
   updateStampSample();
@@ -454,6 +480,7 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
   stampSample.width=stampSample.height=0;stampSampleContext=null;
   texture?.dispose();if(shapeOwner)shapeOwner.dispose();else geometry?.dispose();material?.dispose();pedestalGeometry?.dispose();pedestalMaterial?.dispose();root.remove();
  }
+ contextCanvas?.addEventListener('webglcontextlost',loseContext,{signal:lifetime.signal});contextCanvas?.addEventListener('webglcontextrestored',restoreContext,{signal:lifetime.signal});
  try{
   if(!ctx)throw new Error('Canvas 2D unavailable');fillBlank();
   scene=new THREE.Scene();scene.background=new THREE.Color(0x0b1426);camera=new THREE.PerspectiveCamera(33,1,.1,30);camera.position.set(0,.4,7);camera.lookAt(0,0,0);
@@ -482,7 +509,7 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
    previewMode=button.dataset.previewMode;root.dataset.previewMode=previewMode;for(const item of root.querySelectorAll('[data-preview-mode]'))item.setAttribute('aria-pressed',String(item===button));updateSurfaceControls();
   });
   listen(preview,'pointerdown',event=>{
-   if(restoring||rotation||stroke||surfacePointer||!event.isPrimary||event.button!==0)return;event.preventDefault();
+   if(restoring||contextUnavailable||rotation||stroke||surfacePointer||!event.isPrimary||event.button!==0)return;event.preventDefault();
    if(previewMode==='surface'){if(!surfaceAvailable())return;surfacePointer={id:event.pointerId,pen:event.pointerType==='pen',event:{pointerId:event.pointerId,pointerType:event.pointerType},screen:null};try{preview.setPointerCapture(event.pointerId);}catch{}queueSurface(event);return;}
    rotation={id:event.pointerId,x:event.clientX,angle:Number(angle.value)};try{preview.setPointerCapture(event.pointerId);}catch{}
   });
@@ -503,7 +530,7 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
   });
   listen(window,'blur',()=>{finishStroke();finishRotation();});listen(angle,'input',()=>{if(!restoring){finishRotation();setAngle(Number(angle.value));}});
   listen(window,'pagehide',flushOnLeave);listen(document,'visibilitychange',()=>{if(document.visibilityState==='hidden')flushOnLeave();else updateStampSample();});
-  for(const control of root.querySelectorAll('[data-control="width"],[data-control="density"],[data-control="motif"],[data-control="stampSize"],[data-control="stampAngle"],[data-control="stampRepeat"]'))listen(control,'input',()=>{if(restoring)return;cancelComposition();finishStroke();updateToolControls();queueDraft();});
+  for(const control of root.querySelectorAll('[data-control="width"],[data-control="density"],[data-control="motif"],[data-control="stampSize"],[data-control="stampAngle"],[data-control="stampRepeat"],[data-control="brushMirror"]'))listen(control,'input',()=>{if(restoring)return;cancelComposition();finishStroke();updateToolControls();queueDraft();});
   for(const button of root.querySelectorAll('[data-tool]'))listen(button,'click',()=>{if(restoring||tool===button.dataset.tool)return;cancelComposition();finishStroke();tool=button.dataset.tool;updateToolControls();for(const item of root.querySelectorAll('[data-tool]'))item.setAttribute('aria-pressed',String(item===button));queueDraft();});
   for(const button of root.querySelectorAll('[data-template]')){
    const swatch=button.querySelector('canvas');try{const draw=swatch.getContext('2d');if(draw){draw.scale(144/512,72/256);paintTemplate(draw,button.dataset.template);}}catch(error){swatch.hidden=true;console.warn('Pattern preview unavailable:',error);}
