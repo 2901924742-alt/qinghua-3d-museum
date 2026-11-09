@@ -99,9 +99,15 @@ export function createPotteryModel({THREE,mobile=false,preset='vase'}){
   for(let j=0;j<sections;j++){const i=station(j),y=clay.ymid(i);outer.push([clay.ro[i],y]);inner.push([y<floorY?0:clay.ri[i],Math.max(floorY,y)]);}
   return {outer,inner,height:clay.height,maxR:clay.maxR,canUndo:!disposed&&past.length>0,canRedo:!disposed&&future.length>0,preset:currentPreset};
  }
+ function getRadius(y){
+  if(disposed||!Number.isFinite(y)||y<0||y>55)return NaN;
+  const i=clay.sectionAt(y),a=y<clay.ymid(i)?i-1:i,b=a+1;
+  if(a<0)return clay.ro[0];if(b>=NS)return clay.ro[NS-1];
+  const low=clay.ymid(a),high=clay.ymid(b);return clay.ro[a]+(clay.ro[b]-clay.ro[a])*(y-low)/(high-low);
+ }
  const pointOK=(r,y)=>Number.isFinite(r)&&Number.isFinite(y)&&r>=0&&r<=24&&y>=0&&y<=55;
  function beginStroke(r,y){
-  if(disposed||!pointOK(r,y))return false;endStroke();stroke={r,y,before:capture()};hand.grab();return true;
+  if(disposed||!pointOK(r,y))return false;endStroke();stroke={r,y,baseRadius:getRadius(y),before:capture()};hand.grab();return true;
  }
  function sculpt(r,y,dt){
   if(disposed||!stroke||!pointOK(r,y)||!Number.isFinite(dt)||dt<=0)return false;
@@ -111,6 +117,33 @@ export function createPotteryModel({THREE,mobile=false,preset='vase'}){
   hand.apply(clay,{r,y,pr:previousR,py:previousY,dR:r-previousR,dY:y-previousY,press:1,contact,omega:8.4},clamp(dt,1/240,.1));
   if(!valid(clay)){apply(rollback);hand.grab();return false;}
   if(same(rollback))return false;updateGeometry();return true;
+ }
+ function setRadius(r,y){
+  if(disposed||!stroke||!pointOK(r,y)||r<.12||r>16||y!==stroke.y)return false;
+  if(!stroke.band){
+   const arrays=stroke.before.arrays,dy=new Float64Array(NS),ys=new Float64Array(NS);let height=0,floor=NS;
+   for(let i=0;i<NS;i++){dy[i]=Math.fround(clamp(arrays.V[i]/(Math.PI*(arrays.ro[i]**2-arrays.ri[i]**2)),.0005,4));ys[i]=(Math.fround(height)+Math.fround(height+dy[i]))/2;height+=dy[i];if(floor===NS&&arrays.ri[i]>.012)floor=i;}
+   if(y<ys[0]||y>ys[NS-1])return false;
+   let hi=0;while(hi<NS-1&&ys[hi]<y)hi++;const lo=Math.max(0,hi-1),radius=stroke.baseRadius;
+   const flat=Math.max(Math.abs(y-ys[lo]),Math.abs(ys[hi]-y)),support=Math.max(1.25,height*.07,flat+.75),weights=new Float64Array(NS);
+   for(let i=0;i<NS;i++){const q=Math.max(0,Math.min(1,(Math.abs(ys[i]-y)-flat)/(support-flat)));weights[i]=1-q*q*(3-2*q);}
+   stroke.band={y,radius,dy,weights,floor};
+  }
+  const band=stroke.band;if(y!==band.y)return false;capture(rollback);
+  function place(delta){
+   apply(stroke.before);if(delta===0)return true;
+   const arrays=stroke.before.arrays;
+   for(let i=0;i<NS;i++){
+    const shift=band.weights[i]*delta;if(shift===0)continue;
+    clay.ro[i]=arrays.ro[i]+shift;clay.ri[i]=i<band.floor?arrays.ri[i]:Math.max(i===NS-1?.12:.01201,Math.min(clay.ro[i]-.055001,arrays.ri[i]+shift));
+    // Keep station heights fixed for this design control; no physical mass conservation is implied.
+    clay.V[i]=Math.PI*(clay.ro[i]**2-clay.ri[i]**2)*band.dy[i];
+   }
+   if(!valid(clay))return false;clay.derive();return true;
+  }
+  const delta=r-band.radius;
+  if(!place(delta)){let low=0,high=1;for(let i=0;i<24;i++){const middle=(low+high)/2;if(place(delta*middle))low=middle;else high=middle;}if(!place(delta*low)){apply(rollback);return false;}}
+  if(same(rollback)){apply(rollback);return false;}updateGeometry();return true;
  }
  function endStroke(){
   if(!stroke)return false;const before=stroke.before;stroke=null;hand.release();if(!same(before)){remember(before);return true;}return false;
@@ -141,5 +174,5 @@ export function createPotteryModel({THREE,mobile=false,preset='vase'}){
   endStroke();const before=capture();apply(state);if(!same(before))remember(before);updateGeometry();return true;
  }
  makePreset(preset);updateGeometry();
- return {geometry,getProfile,beginStroke,sculpt,endStroke,undo,redo,reset,serialize,restore,dispose(){if(disposed)return;disposed=true;stroke=null;hand.release();past.length=future.length=0;geometry.dispose();}};
+ return {geometry,getProfile,getRadius,beginStroke,sculpt,setRadius,endStroke,undo,redo,reset,serialize,restore,dispose(){if(disposed)return;disposed=true;stroke=null;hand.release();past.length=future.length=0;geometry.dispose();}};
 }

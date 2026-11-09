@@ -58,7 +58,7 @@ const wordsSource = source.slice(source.indexOf('const words='), source.indexOf(
             lifetime: new AbortController(), references: new Map(), referenceKind: 'off',
             profile: node(), preview: node(), angle: node(), radius: node(), band: node(), preset: node(), poster: node(),
             posterImage: node(), sectionButton: node(), sectionControls: node(), sectionHeight: node(), sectionOutput: node(),
-            draftStatus: node(), status: {textContent: 'initial'}, Blob,
+            draftStatus: node(), status: {textContent: 'initial'}, shapingTool: node(), shapingHint: node(), Blob,
             URL: {createObjectURL() {const url = 'blob:fixture/' + nextURL++; urls.add(url); return url;},
                 revokeObjectURL(url) {urls.delete(url); revoked.push(url);}},
             setTimeout(fn, delay) {const id = nextTimer++; timers.set(id, {fn, delay}); return id;},
@@ -69,17 +69,19 @@ const wordsSource = source.slice(source.indexOf('const words='), source.indexOf(
             console: {warn() {}},
             updateHistory() {}, drawProfile() {}, prepareWire() {},
             render() {renderCalls++;return true;}, scheduleRender() {renderCalls++;}});
+        context.shapingTool.value='precision';const customHeight=node();context.band.querySelector=()=>customHeight;
         vm.runInContext(wordsSource + ';this.t=words[' + JSON.stringify(language) + ']', context);
+        vm.runInContext(source.slice(source.indexOf('const shapingWords='),source.indexOf('export function mountPottery'))+';Object.assign(t,shapingWords['+JSON.stringify(language)+']);',context);
         vm.runInContext([
             // Return the listener's result only so this CPU fixture can await the real async callback.
             lineWith('const listen=(node,event,fn)=>').replace('if(!suspended)fn(...args);', 'if(!suspended)return fn(...args);'),
             lineWith('let active=true,suspended=false,model=null,'),
             lineWith('let wireAttempted=false,'), lineWith('const bands=[.08,'), 'model=__model;',
             "const say=text=>{status.textContent=text;};",
-            ...['updatePosterControls', 'clearExports', 'flushDraft', 'queueDraft', 'mapping', 'radiusAt', 'selection', 'applyPending',
+            ...['updatePosterControls', 'clearExports', 'flushDraft', 'queueDraft', 'mapping', 'radiusAt', 'selection', 'syncHeight', 'syncShapingTool', 'applyPending',
                 'finishEdit', 'finishRotation', 'changed', 'beginBand', 'nudge', 'flushOnLeave', 'suspend', 'resume',
                 'clearSection', 'syncView', 'dispose'].map(declaration),
-            registration("listen(radius,'input'"), registration("listen(band,'change'"),
+            registration("listen(radius,'input'"), registration("listen(band,'change'"), registration("listen(shapingTool,'change'"),
             registration('for(const action of [\'undo\',\'redo\'])'),
             registration("listen(preset,'change'"),
             registration("for(const button of root.querySelectorAll('[data-mode]'))"),
@@ -118,6 +120,8 @@ const wordsSource = source.slice(source.indexOf('const words='), source.indexOf(
     }
     for (const [name, action] of [
         ['angle', f => f.fire(f.context.angle, 'input')],
+        ['shaping-tool-natural', f => {f.context.shapingTool.value='natural';f.fire(f.context.shapingTool,'change');}],
+        ['shaping-tool-return-precision', f => {for(const value of ['natural','precision']){f.context.shapingTool.value=value;f.fire(f.context.shapingTool,'change');}}],
         ['preview-drag', f => {f.fire(f.context.preview, 'pointerdown', {isPrimary: true, button: 0, pointerId: 1, clientX: 10}); f.fire(f.context.preview, 'pointermove', {pointerId: 1, clientX: 50});}],
         ['rim-view', f => f.fire(f.viewButtons[1], 'click')],
         ['section-view', f => {f.fire(f.viewButtons[2], 'click'); f.fire(f.context.sectionHeight, 'input');}],
@@ -128,6 +132,7 @@ const wordsSource = source.slice(source.indexOf('const words='), source.indexOf(
         assert.equal(f.restores, 1, 'Display-only action must not discard a valid import');
         assert.equal(f.model.serialize(), incoming); assert.equal(f.status(), f.context.t.imported);
     });
+    await check('idle-tool-change-preserves-exports-history-draft-and-pending-import',async f=>{f.seedExports();const job=f.beginImport(),before=f.model.serialize(),state=f.run('JSON.stringify({shapeRevision,generation,importToken,draftDirty,saveTimer,pngURL,designURL})'),renders=f.renders;for(const value of ['natural','precision']){f.context.shapingTool.value=value;f.fire(f.context.shapingTool,'change');}assert.equal(f.model.serialize(),before);assert.equal(f.run('JSON.stringify({shapeRevision,generation,importToken,draftDirty,saveTimer,pngURL,designURL})'),state);assert.equal(f.renders,renders);assert.equal(f.writes,0);assert.equal(f.revoked.length,0);assert.equal(f.$('[data-action="download"]').hidden,false);assert.equal(f.model.getProfile().canUndo,false);assert.equal(f.context.shapingHint.textContent,f.context.t.precisionHint);job.resolve();await job.done;assert.equal(f.restores,1);});
     await check('successful-import-invalidates-old-output-and-saves-draft', async f => {
         f.seedExports(); const job = f.beginImport(); job.resolve(); await job.done;
         assert.equal(f.$('[data-action="download"]').hidden, true);

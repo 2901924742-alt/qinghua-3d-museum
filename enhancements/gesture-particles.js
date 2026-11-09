@@ -116,14 +116,15 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
  const target={x:.5,y:.5,pinch:0},current={...target},rotation={yaw:-.24,pitch:0};let rotationAnchor=null,framedScale=0,framedCenter=0,framedHeight=0;
  const reduced=typeof matchMedia==='function'?matchMedia('(prefers-reduced-motion:reduce)'):null;
  let enabled=false,disposed=false,time=0,state='',generation=0,stream=null,video=null,worker=null,pending=null,shownModel=null,previousVisible=true,charged=false,releaseAt=-10,textureAvailable=false;
- let loopTimer=0,initTimer=0,frameTimer=0,rejectInit=null,lastVideoTime=-1,action='orbit',handPose='',handCandidate='',handSince=0,oneStartX=null,oneStartY=0,oneStarted=0,switchAfter=0,switchArmed=true,oneConsumed=false,switching=false,layoutAt=-10,notifiedPose='';
+ let loopTimer=0,initTimer=0,frameTimer=0,rejectInit=null,lastVideoTime=-1,action='orbit',handPose='',handCandidate='',handSince=0,oneStartX=null,oneStartY=0,oneDirection=0,readyAnchor=false,switchAfter=0,switching=false,layoutAt=-10,notifiedPose='';
+ const oneSamples=[]; // At the existing 84 ms start interval, 16 records cover the 1.2 s motion window.
  let bloom=null,bloomPending=null,bloomRequested=false,scanGeometry=null,scanPending=null,scanRequested=false,scanGeneration=0,createScanGeometry=null;
- let missingSince=null,lastHand=null,blockedAfter=0,frameStartedAt=null,inFlight=false,lastCaptureAt=null,metrics;
- function resetDiagnostics(){metrics={startedAt:performance.now(),endedAt:null,frames:0,hands:0,misses:0,graceRecoveries:0,discontinuities:0,poseFlips:0,switches:0,blockedSwitches:0,actualVideoWidth:0,actualVideoHeight:0,inputWidth:0,inputHeight:0,firstResultAt:null,lastResultAt:null};lastCaptureAt=null;}
+ let missingSince=null,lastHand=null,lastHandResultAt=null,frameStartedAt=null,inFlight=false,lastCaptureAt=null,metrics;
+ function resetDiagnostics(){metrics={startedAt:performance.now(),endedAt:null,frames:0,hands:0,misses:0,graceRecoveries:0,discontinuities:0,poseFlips:0,switches:0,blockedSwitches:0,cooldownSwitches:0,actualVideoWidth:0,actualVideoHeight:0,inputWidth:0,inputHeight:0,firstResultAt:null,lastResultAt:null};lastCaptureAt=null;}
  function measure(name,value){if(!Number.isFinite(value)||value<0)return;metrics[name+'Count']=(metrics[name+'Count']||0)+1;metrics[name+'Total']=(metrics[name+'Total']||0)+value;metrics[name+'LastMs']=value;metrics[name+'MaxMs']=Math.max(metrics[name+'MaxMs']||0,value);metrics[name+'MinMs']=Math.min(metrics[name+'MinMs']??value,value);}
  function diagnostics(){
   const result={startedAt:metrics.startedAt,elapsedMs:Math.max(0,(metrics.endedAt??performance.now())-metrics.startedAt),state,cameraActive:!!stream};
-  for(const key of ['frames','hands','misses','graceRecoveries','discontinuities','poseFlips','switches','blockedSwitches','actualVideoWidth','actualVideoHeight','inputWidth','inputHeight'])result[key]=metrics[key];
+  for(const key of ['frames','hands','misses','graceRecoveries','discontinuities','poseFlips','switches','blockedSwitches','cooldownSwitches','actualVideoWidth','actualVideoHeight','inputWidth','inputHeight'])result[key]=metrics[key];
   for(const name of ['inference','roundTrip','capture','sampleInterval'])for(const suffix of ['LastMs','MaxMs','MinMs','MeanMs'])result[name+suffix]=suffix==='MeanMs'?(metrics[name+'Total']||0)/(metrics[name+'Count']||1):metrics[name+suffix]||0;
   result.detectedRatio=metrics.frames?metrics.hands/metrics.frames:0;result.resultHz=metrics.frames>1&&metrics.lastResultAt>metrics.firstResultAt?(metrics.frames-1)*1000/(metrics.lastResultAt-metrics.firstResultAt):0;return result;
  }
@@ -140,9 +141,16 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
   target.pinch=current.pinch=0;charged=false;releaseAt=-10;uniforms.charge.value=0;lineUniforms.release.value=-1;
  }
  function cancelInputs(){
-  cancelCharge();handPose=handCandidate='';oneStartX=null;rotationAnchor=null;switchArmed=!oneConsumed;missingSince=null;lastHand=null;
+  cancelCharge();handPose=handCandidate='';oneSamples.length=0;oneStartX=null;oneDirection=0;readyAnchor=false;rotationAnchor=null;missingSince=null;lastHand=null;lastHandResultAt=null;
  }
- function setSwitching(value){switching=!!value;if(switching){oneConsumed=true;switchArmed=false;}}
+ function setSwitching(value){const next=!!value;if(switching&&!next){oneSamples.length=0;oneStartX=null;readyAnchor=true;}switching=next;}
+ function anchorOne(hand){oneSamples.length=0;oneSamples.push(hand);oneStartX=hand.x;oneStartY=hand.y;}
+ function observeOne(hand){
+  while(oneSamples.length&&hand.at-oneSamples[0].at>1.2)oneSamples.shift();
+  if(oneSamples.length===16)oneSamples.shift();oneSamples.push(hand);
+  let origin=oneSamples[0];for(let i=1;i<oneSamples.length;i++){const point=oneSamples[i];if(oneDirection<0&&point.x<origin.x||oneDirection>0&&point.x>origin.x)origin=point;}
+  oneStartX=origin.x;oneStartY=origin.y;
+ }
  function nextLayout(){uniforms.previousSeed.value=uniforms.layoutSeed.value;uniforms.layoutSeed.value=(uniforms.layoutSeed.value+1.618033989)%1024;layoutAt=time;}
  function setAction(next){
   if(disposed||!['orbit','vortex','scatter'].includes(next))return false;
@@ -224,10 +232,12 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
   // Sampling must succeed before we release the old exhibit or its GPU buffers.
   if(shownModel)shownModel.visible=previousVisible;
   if(geometry.attributes.position?.array!==sample.positions){if(geometry.attributes.position)geometry.dispose();geometry.setAttribute('position',new THREE.BufferAttribute(sample.positions,3));geometry.setAttribute('color',new THREE.BufferAttribute(sample.colors,3));geometry.setAttribute('normal',new THREE.BufferAttribute(sample.normals,3));}
-  shownModel=model;previousVisible=model.visible;model.visible=false;textureAvailable=sample.textureAvailable;time=0;layoutAt=-10;if(stream||pending)oneConsumed=true;cancelInputs();target.x=current.x=.5;target.y=current.y=.5;rotation.yaw=-.24;rotation.pitch=0;art.rotation.set(0,-.24,0);
+  const tracking=stream?{handPose,handCandidate,handSince,missingSince,lastHand,lastHandResultAt,oneDirection}:null;
+  shownModel=model;previousVisible=model.visible;model.visible=false;textureAvailable=sample.textureAvailable;time=0;layoutAt=-10;cancelInputs();target.x=current.x=.5;target.y=current.y=.5;rotation.yaw=-.24;rotation.pitch=0;art.rotation.set(0,-.24,0);
   trailPositions.fill(0);trailUniforms.visible.value=0;uniforms.scan.value=-1.15;uniforms.spread.value=uniforms.swirl.value=0;setAction('orbit');
+  if(tracking){({handPose,handCandidate,handSince,missingSince,lastHand,lastHandResultAt,oneDirection}=tracking);readyAnchor=true;notifiedPose='';status(state);}
  }
- function changeModel(){if(!enabled||disposed)return false;loadModel();update(0);return true;}
+ function changeModel(){if(!enabled||disposed)return false;if(getModel()===shownModel){cancelCharge();rotationAnchor=null;}loadModel();update(0);return true;}
  function setEnabled(value){
   if(disposed)return;
   if(value&&!enabled)loadModel();
@@ -237,49 +247,53 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
  function handResult(landmarks,width,height){
   const hand=classifyHand(landmarks,width,height,handPose);
   const now=performance.now()/1000;
+  let skip=!!hand&&lastHandResultAt!==null&&now-lastHandResultAt>1.2;if(skip)cancelInputs();
   metrics.frames++;metrics.lastResultAt=now*1000;metrics.firstResultAt??=now*1000;
   if(!hand){
    metrics.misses++;if(missingSince===null){missingSince=now;cancelCharge();rotationAnchor=null;}
-   if(now-missingSince>=.3){const began=missingSince;oneConsumed=false;cancelInputs();missingSince=began;status('no-hand');}return;
+   if(now-missingSince>=.3){const began=missingSince;cancelInputs();missingSince=began;status('no-hand');}lastHandResultAt=now;return;
   }
   metrics.hands++;
   const recovered=missingSince!==null;
   if(recovered){
    const gap=now-missingSince,continuous=gap<.3&&lastHand&&hand.gesture===lastHand.gesture&&Math.abs(hand.x-lastHand.x)<.06&&Math.abs(hand.y-lastHand.y)<.08&&(hand.gesture!=='one'||oneStartX===null||Math.abs(hand.x-oneStartX)<.10);
    rotationAnchor=null;
-   if(continuous){metrics.graceRecoveries++;handSince+=gap;oneStarted+=gap;}
-   else{if(gap>=.3)oneConsumed=false;else metrics.discontinuities++;cancelInputs();}
+   if(continuous){metrics.graceRecoveries++;handSince+=gap;}
+   else{const direction=oneDirection;if(gap<.3)metrics.discontinuities++;cancelInputs();if(gap<.3)oneDirection=direction;}
    missingSince=null;
   }
   if(lastHand&&hand.gesture!==lastHand.gesture)metrics.poseFlips++;
-  if(hand.gesture!==handCandidate){handCandidate=hand.gesture;handSince=now;rotationAnchor=null;if(handCandidate==='one'){oneStartX=hand.x;oneStartY=hand.y;oneStarted=now;}}
+  if(hand.gesture!==handCandidate){handCandidate=hand.gesture;handSince=now;rotationAnchor=null;}
+  hand.at=now;if(hand.gesture==='one')observeOne(hand);
   if(handCandidate!==handPose&&now-handSince>.12){
    handPose=handCandidate;
    if(handPose==='fist'||handPose==='two')setAction('orbit');else if(handPose==='open')setAction('scatter');
    handPose=handCandidate=hand.gesture;
-   if(handPose!=='one'){oneStartX=null;oneConsumed=false;switchArmed=true;}
+   if(handPose!=='one'){oneSamples.length=0;oneStartX=null;oneDirection=0;}
   }
-  if(handPose==='one'&&hand.gesture==='one'&&!recovered){
-   if(now-oneStarted>1.2){oneStartX=hand.x;oneStartY=hand.y;oneStarted=now;}
+  if(!switching&&readyAnchor&&hand.gesture==='one'){anchorOne(hand);readyAnchor=false;skip=true;}
+  if(handPose==='one'&&hand.gesture==='one'&&!recovered&&!skip){
    const movement=hand.x-oneStartX,vertical=Math.abs(hand.y-oneStartY);
    if(Math.abs(movement)>.10&&Math.abs(movement)>vertical*1.4){
-    if(switching){if(now>blockedAfter){blockedAfter=now+.8;metrics.blockedSwitches++;onSwitchBlocked();}}
-    else if(switchArmed&&now>switchAfter){
-     oneConsumed=true;switchArmed=false;switchAfter=now+.65;metrics.switches++;
+    oneDirection=Math.sign(movement);anchorOne(hand);
+    if(switching){metrics.blockedSwitches++;onSwitchBlocked();}
+    else if(now<=switchAfter)metrics.cooldownSwitches++;
+    else{
+     switchAfter=now+.65;metrics.switches++;
      try{Promise.resolve(onSwitch(movement<0?1:-1)).catch(error=>console.warn('Gesture exhibit switch:',error));}catch(error){console.warn('Gesture exhibit switch:',error);}
     }
    }
   }
-  // A stable two-finger pose rotates; index-only movement is reserved for a single armed exhibit swipe.
+  // Stable two fingers rotate; a one-finger stroke is consumed once until an observed reversal.
   if(hand.gesture==='two'&&handPose==='two')setPointer(hand.x,hand.y,0,true);
   else setPointer(hand.x,hand.y,hand.gesture==='pinch'&&handPose==='pinch'?hand.pinch:0);
-  lastHand={x:hand.x,y:hand.y,gesture:hand.gesture};
+  lastHand=hand;lastHandResultAt=now;
   status('tracking');
  }
  function startCamera(){
   if(disposed||!enabled)return Promise.resolve('ready');if(pending)return pending;if(stream)return Promise.resolve(state);
   if(typeof Worker!=='function'||typeof createImageBitmap!=='function'||typeof OffscreenCanvas!=='function'||!navigator.mediaDevices?.getUserMedia)return Promise.resolve(status('unsupported'));
-  oneConsumed=false;cancelInputs();resetDiagnostics();const token=++generation;status('loading');
+  cancelInputs();resetDiagnostics();const token=++generation;status('loading');
   const task=(async()=>{
    try{
     const acquired=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:320},height:{ideal:240},frameRate:{ideal:15,max:15}},audio:false});
