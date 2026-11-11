@@ -23,3 +23,10 @@ export function boundedHistory(limit=12) {
  const frames=[];
  return {push(frame){frames.push(frame);if(frames.length>limit)frames.shift();},pop(){return frames.pop();},clear(){frames.length=0;},get size(){return frames.length;}};
 }
+
+export function shiftPaintPixels(data,columns){
+ if(!(data instanceof Uint8ClampedArray)||data.length!==512*256*4||!Number.isInteger(columns)||columns< -256||columns>256)throw new RangeError('Invalid pattern shift');
+ const output=new Uint8ClampedArray(data.length),shift=((columns%512)+512)%512*4,row=512*4;
+ for(let start=0;start<data.length;start+=row){output.set(data.subarray(start,start+row-shift),start+shift);output.set(data.subarray(start+row-shift,start+row),start);}
+ return output;
+}

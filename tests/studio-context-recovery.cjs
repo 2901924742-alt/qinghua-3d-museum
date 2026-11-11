@@ -48,10 +48,14 @@ const source=path.resolve(process.argv[2]||path.join(__dirname,'../enhancements/
  const experience=fs.readFileSync(path.join(path.dirname(source),'experience.js'),'utf8');
  function body(name){const re=new RegExp('^ function '+name+'\\(','m'),start=re.exec(experience)?.index;assert(start!==undefined);const line=experience.indexOf('\n',start),end=/^ \}/m.exec(experience.slice(line));assert(end);return experience.slice(start,line+end.index+end[0].length);}
  {
-  let unavailable=false,draws=0,renders=0;const context={renderer:{getContext:()=>({isContextLost:()=>unavailable}),domElement:{width:8,height:6}},renderMuseum(){renders++;unavailable=true;},document:{createElement:()=>({getContext:()=>({drawImage(){draws++;}})})}};
+  let unavailable=false,draws=0,renders=0;const context={starfield:null,renderer:{getContext:()=>({isContextLost:()=>unavailable}),domElement:{width:8,height:6}},renderMuseum(){renders++;unavailable=true;},document:{createElement:()=>({getContext:()=>({drawImage(){draws++;}})})}};
   vm.createContext(context);for(const name of ['requireContext','capture'])vm.runInContext(body(name),context);
   assert.throws(()=>vm.runInContext('capture()',context),lost);assert.equal(renders,1);assert.equal(draws,0);checks.push('museum-capture-rejects-loss-during-render-before-copy');
   assert.throws(()=>vm.runInContext('capture()',context),lost);assert.equal(renders,1);assert.equal(draws,0);checks.push('museum-capture-rejects-known-loss-before-render');
+ }
+ {
+  const marker={},failure=Error('Starfield not ready'),context={starfield:{active:true,capture:()=>marker},renderer:{getContext(){throw Error('Museum renderer must not be borrowed');}},renderMuseum(){throw Error('Museum must stay parked');},document:{createElement(){throw Error('No museum copy');}}};
+  vm.createContext(context);vm.runInContext(body('capture'),context);assert.equal(context.capture(),marker);context.starfield.capture=()=>{throw failure;};assert.throws(()=>context.capture(),error=>error===failure);checks.push('active-starfield-capture-is-exclusive-and-preserves-not-ready-error');
  }
  const index=fs.readFileSync(path.join(path.dirname(source),'../index.html'),'utf8');
  assert(!/webglcontextrestored[^\n]*location\.reload/.test(index));assert(index.indexOf("addEventListener('webglcontextrestored'")>index.indexOf('const animationClock ='));assert(index.includes('if (renderer.getContext().isContextLost())'));checks.push('main-does-not-automatically-reload-unsaved-editors');

@@ -21,3 +21,12 @@
 - 常驻导览标注和多展品导航：可在有具体文物说明及新增展品后设计，避免当前手机画面增加遮挡。
 
 MIT 与 Apache-2.0 均允许按各自许可证条件二次开发与再分发。采用实际代码时应保留许可证及要求的声明；模型、照片和文字等资产需要单独确认授权。本次只分发已使用的 Three.js 文件，未复制上述其他项目的代码或资产。
+
+
+## R37 星河观景（本地候选）
+
+黑洞追迹、时间积累、噪声与运镜依据用户提供的 blackhole-windows-dev-2026-11-11.zip 提取并适配。原文件 blackhole.html 的 SHA-256 为 507230420142b0b9ff28ff76edf5d5e891f20caebd4cfb30d1064f9399b8c338；没有引入其内嵌 Three.js r170 或独立渲染器。原始 ZIP 留存在 D 盘，完整性记录在本轮 work/blackhole-input-2026-11-11/input-integrity.json。该用户提供实现未被声明为另一个可自由再分发的开源许可证。
+
+后处理复用 Three.js r160 官方 UnrealBloomPass、OutputPass、Pass 及三个着色器，按原样保存在 vendor/blackhole-postprocessing/，附 MIT LICENSE、固定提交及逐文件 SHA-256 的 source-manifest.json。仍使用展馆已有 Three.js r160、OrbitControls 和唯一的 WebGL canvas。
+
+展馆远景使用同一追迹核心的蓝白配色离屏结果，近景保留原演示的艺术化表现。坠入采用无自旋史瓦西近似，界面说明其不是实测或精确的 Kerr 坠落模拟。弱能力设备可返回原展馆，远景不支持时使用原轻量兼容效果。未添加外部 CDN、账户服务或遥测。

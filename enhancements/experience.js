@@ -4,7 +4,7 @@ import {createGallery} from './gallery.js';
 import {createGestureExperience} from './gesture-experience.js';
 
 // Enhancements share the existing animation loop and never change the porcelain renderer settings.
-export function createExperience({THREE,scene,renderer,camera,controls,renderMuseum,isDesktop,hideInfo,restoreInfo,loadExhibit,disposeExhibit,onExhibitChange,releaseSceneGPU=null}) {
+export function createExperience({THREE,scene,renderer,camera,controls,renderMuseum,isDesktop,hideInfo,restoreInfo,loadExhibit,disposeExhibit,onExhibitChange,releaseSceneGPU=null,legacyBlackHole=null,resumeMuseum=null}) {
  const lifetime=new AbortController(),cleanup=[];
  let disposed=false;
  const listen=(node,type,handler,options={})=>node.addEventListener(type,handler,{...options,signal:lifetime.signal});
@@ -13,9 +13,99 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  let model=null,anchors=null,intro=null,introCancelled=false,time=0,meteorAt=10,meteorStart=-1,pausedEffects=false,gallery=null,exhibitIndex=0;
  const reduced=matchMedia('(prefers-reduced-motion: reduce)');
  const dummy=new THREE.Object3D(),tmp=new THREE.Vector3(),tmpNormal=new THREE.Vector3();
- let gesture;
- const ui=createUI({controls,hideInfo,restoreInfo,cancelIntro,capture,unwrap,switchExhibit:direction=>gallery?.step(direction),openGesture:()=>gesture.open(),gestureActive:()=>gesture?.active,openBloom:options=>gesture.openBloom(options),openScan:options=>gesture.openScan(options),getStudioRenderer});
+ let gesture,starfield=null,starfieldPromise=null,starfieldOpening=false,starfieldToken=0,cancelStarfieldPending=null,background=null,backgroundPromise=null,backgroundFailed=false,backgroundWarm=null,backgroundToken=0,backgroundContextLost=false,backgroundPageHidden=false;
+ const exclusiveActive=()=>starfieldOpening||!!starfield?.active;
+ cleanup.push(()=>{cancelBackgroundWarm();try{background?.dispose();}finally{background=null;}});
+ cleanup.push(()=>{cancelStarfieldPending?.('dispose');starfieldToken++;starfieldOpening=false;starfield?.dispose();});
+ function cancelBackgroundWarm(){
+  backgroundToken++;const pending=backgroundWarm;backgroundWarm=null;pending?.cancel();
+ }
+ function warmBackground({signal,deadline=performance.now()+1500}={}){
+  const now=performance.now();deadline=Math.min(deadline,now+1500);
+  if(disposed||!legacyBlackHole||backgroundFailed||backgroundContextLost||backgroundPageHidden||document.hidden||signal?.aborted||!Number.isFinite(deadline)||now>=deadline||starfieldOpening||starfield?.active||gesture?.active)return Promise.resolve(false);
+  if(background)return Promise.resolve(true);
+  if(backgroundWarm)return backgroundWarm.promise;
+  const token=++backgroundToken;let resolve,done=false,timer;
+  const promise=new Promise(finish=>{resolve=finish;});
+  const cancelled=()=>disposed||token!==backgroundToken||backgroundContextLost||backgroundPageHidden||document.hidden||signal?.aborted||starfieldOpening||starfield?.active||gesture?.active;
+  const stale=()=>cancelled()||performance.now()>=deadline;
+  function finish(value){
+   if(done)return;done=true;clearTimeout(timer);signal?.removeEventListener('abort',abort);lifetime.signal.removeEventListener('abort',abort);
+   if(backgroundWarm===pending)backgroundWarm=null;resolve(value);
+  }
+  function abort(){if(backgroundWarm===pending)cancelBackgroundWarm();else finish(false);}
+  const pending={promise,cancel:()=>finish(false)};backgroundWarm=pending;
+  timer=setTimeout(abort,Math.max(0,deadline-now));signal?.addEventListener('abort',abort,{once:true});lifetime.signal.addEventListener('abort',abort,{once:true});
+  // Dynamic import cannot abort HTTP; admission checks prevent allocation after cancellation.
+  if(!backgroundPromise)backgroundPromise=import('./starfield-background.js').catch(error=>{backgroundPromise=null;throw error;});
+  backgroundPromise.then(({createStarfieldBackground})=>{
+   try{
+    if(stale()||renderer.getContext().isContextLost()){finish(false);return;}
+    const created=createStarfieldBackground({THREE,scene,renderer,camera,legacy:legacyBlackHole,isDesktop});
+    // A synchronous constructor cannot be preempted by the deadline or an AbortSignal.
+    if(cancelled()){try{created.dispose();}catch(error){console.warn('Museum background cleanup:',error);}finish(false);return;}
+    background=created;finish(true);
+   }catch(error){if(token===backgroundToken&&!disposed)backgroundFailed=true;console.warn('Museum background starfield unavailable:',error);finish(false);}
+  },error=>{if(!stale()){backgroundFailed=true;console.warn('Museum background starfield unavailable:',error);}finish(false);});
+  return promise;
+ }
+ function loseBackground(){
+  backgroundContextLost=true;cancelBackgroundWarm();const previous=background;background=null;
+  try{previous?.dispose();}catch(error){console.warn('Museum background cleanup:',error);}
+ }
+ function restoreBackground(){
+  if(!backgroundContextLost||disposed||backgroundPageHidden||document.hidden||starfieldOpening||starfield?.active||gesture?.active)return Promise.resolve(false);
+  try{if(renderer.getContext().isContextLost())return Promise.resolve(false);}
+  catch(error){backgroundContextLost=false;backgroundFailed=true;console.warn('Museum background context unavailable:',error);return Promise.resolve(false);}
+  backgroundContextLost=false;backgroundFailed=false;return warmBackground({deadline:performance.now()+1500});
+ }
+ async function openStarfield(options={}){
+  if(disposed||gesture?.active||gallery?.active||exclusiveActive())return false;
+  cancelBackgroundWarm();
+  const token=++starfieldToken;starfieldOpening=true;let owned=false,restore=null,pendingDialog=null;
+  const pendingEvents=new AbortController(),pendingFocus=document.activeElement;
+  const finishPending=()=>{pendingEvents.abort();if(pendingDialog){pendingDialog.close();pendingDialog.remove();pendingDialog=null;if(pendingFocus?.isConnected)pendingFocus.focus({preventScroll:true});}};
+  cancelStarfieldPending=reason=>{
+   if(token!==starfieldToken)return;
+   starfieldToken++;starfieldOpening=false;cancelStarfieldPending=null;finishPending();options.onReturn?.(reason);
+  };
+  try{
+   const en=ui.language==='en';pendingDialog=document.createElement('dialog');pendingDialog.id='museumStarfieldPending';pendingDialog.className='museum-dialog';pendingDialog.setAttribute('aria-label',en?'Preparing the observatory':'正在准备星河观景');
+   pendingDialog.style.position='fixed';pendingDialog.style.inset='0';pendingDialog.style.zIndex='59';
+   pendingDialog.innerHTML=`<section class="museum-panel"><header><h2>${en?'Preparing the observatory':'正在准备星河观景'}</h2><button type="button">${en?'Return':'返回原处'}</button></header><p role="status">${en?'You can return at any time while this view loads.':'正在准备观景画面，可随时返回。'}</p></section>`;
+   pendingDialog.querySelector('button').addEventListener('click',()=>cancelStarfieldPending?.('return'),{signal:pendingEvents.signal});pendingDialog.addEventListener('cancel',event=>{event.preventDefault();cancelStarfieldPending?.('return');},{signal:pendingEvents.signal});document.body.append(pendingDialog);pendingDialog.show();pendingDialog.querySelector('button').focus({preventScroll:true});
+   if(!starfieldPromise)starfieldPromise=import('./starfield-experience.js').catch(error=>{starfieldPromise=null;throw error;});
+   const {createStarfieldExperience}=await starfieldPromise;
+   if(disposed||token!==starfieldToken||gesture?.active||gallery?.active)return false;
+   finishPending();cancelStarfieldPending=null;cancelIntro('starfield');
+   const parked={enabled:controls.enabled,auto:controls.autoRotate,damping:controls.enableDamping,position:camera.position.clone(),quaternion:camera.quaternion.clone(),target:controls.target.clone()};
+   controls.enabled=false;controls.autoRotate=false;let restored=false;
+   restore=()=>{
+    if(restored)return;restored=true;
+    // Consume old OrbitControls inertia without changing the saved museum view.
+    controls.autoRotate=false;controls.enableDamping=false;controls.update(0);
+    camera.position.copy(parked.position);controls.target.copy(parked.target);controls.update(0);camera.position.copy(parked.position);camera.quaternion.copy(parked.quaternion);
+    controls.enableDamping=parked.damping;controls.autoRotate=parked.auto;controls.enabled=parked.enabled;resumeMuseum?.();
+   };
+   // Retain the distant core while the close-up owns the shared loop; Return reuses it.
+   if(!starfield)starfield=createStarfieldExperience({THREE,renderer,getLanguage:()=>ui.language,isDesktop});
+   owned=await starfield.open({...options,onReturn:reason=>{try{restore();}finally{options.onReturn?.(reason);}}});return owned;
+  }catch(error){if(token===starfieldToken)try{starfield?.close('error');}catch{}console.warn('Museum starfield unavailable:',error);return false;}
+  finally{finishPending();if(!owned)restore?.();if(token===starfieldToken){starfieldOpening=false;cancelStarfieldPending=null;}}
+ }
+ function updateBackground(delta){
+  // Only an outstanding native context loss may retry admission once the page is visible.
+  if(backgroundContextLost){void restoreBackground();return;}
+  if(disposed||!background||backgroundFailed||backgroundContextLost||starfield?.active||gesture?.active)return;
+  try{background.update(delta);}catch(error){backgroundFailed=true;try{background.dispose();}catch{}background=null;console.warn('Museum background starfield unavailable:',error);}
+ }
+
+ const ui=createUI({controls,hideInfo,restoreInfo,cancelIntro,capture,unwrap,switchExhibit:direction=>gallery?.step(direction),openGesture:()=>!starfield?.active&&gesture.open(),gestureActive:()=>gesture?.active,openBloom:options=>!starfield?.active&&gesture.openBloom(options),openScan:options=>!starfield?.active&&gesture.openScan(options),openStarfield,starfieldActive:exclusiveActive,getStudioRenderer});
  cleanup.push(()=>ui.dispose());
+ if(renderer)listen(renderer.domElement,'webglcontextlost',loseBackground);
+ if(renderer)listen(renderer.domElement,'webglcontextrestored',restoreBackground);
+ listen(window,'pagehide',()=>{backgroundPageHidden=true;cancelBackgroundWarm();});
+ listen(window,'pageshow',()=>{backgroundPageHidden=false;});
  gesture=createGestureExperience({THREE,scene,camera,renderer,controls,isDesktop,getModel:()=>model,getLanguage:()=>ui.language,cancelIntro,pauseEffects:value=>{pausedEffects=value;},getEffectsPaused:()=>pausedEffects,switchExhibit:direction=>gallery?.step(direction,{animate:false}),cancelSwitch:()=>gallery?.cancel('reset')});
  cleanup.push(()=>{if(intro){camera.position.copy(initialPosition);controls.target.copy(initialTarget);controls.update(0);}cancelIntro('dispose');});
  cleanup.push(()=>gesture.dispose());
@@ -47,14 +137,16 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  gallery=createGallery({THREE,renderer,scene,camera,controls,loadExhibit,disposeExhibit,getModel:()=>model,commit:ready,ui:{galleryState(index,target,state){ui.galleryState(index,target,state);gesture.galleryState(index,target,state);}},cancelIntro,hideInfo,restoreInfo});
  cleanup.push(()=>gallery.dispose());
  function cancelIntro(reason='ui'){
+  cancelBackgroundWarm();
+  if(reason!=='starfield')cancelStarfieldPending?.(reason==='dispose'?'dispose':'return');
   introCancelled=true;finishIntro();if(reason!=='gallery-step')gallery?.cancel(reason);
  }
  function finishIntro(){if(!intro)return;controls.enableDamping=intro.damping;controls.autoRotate=intro.auto;if(!intro.infoHidden)restoreInfo();intro=null;document.body.classList.remove('museum-opening');}
- const interruptView=()=>{if(!gesture.active)cancelIntro('interaction');};
+ const interruptView=()=>{if(!gesture.active&&!exclusiveActive())cancelIntro('interaction');};
  listen(renderer.domElement,'pointerdown',interruptView,{capture:true});listen(renderer.domElement,'wheel',interruptView,{capture:true,passive:true});
  listen(document.getElementById('resetViewBtn'),'click',()=>cancelIntro('reset'),{capture:true});
  listen(document,'visibilitychange',()=>{if(document.hidden)cancelIntro('background');});
- listen(document,'keydown',e=>{if(e.key==='Escape')cancelIntro();});
+ listen(document,'keydown',e=>{if(e.key==='Escape'){if(cancelStarfieldPending)e.preventDefault();cancelIntro();}});
  const onControlsStart=()=>cancelIntro('interaction');controls.addEventListener('start',onControlsStart);
  const onControlsEnd=()=>{if(ui.panel)controls.autoRotate=false;};controls.addEventListener('end',onControlsEnd);
  cleanup.push(()=>{controls.removeEventListener('start',onControlsStart);controls.removeEventListener('end',onControlsEnd);});
@@ -120,7 +212,7 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  function update(delta){
   time+=delta;
   gallery.update();
-  gesture.update(delta);
+  gesture.update(delta);updateBackground(delta);
   if(intro?.running){intro.elapsed=(performance.now()-intro.startAt)/1000;const p=Math.min(1,intro.elapsed/2.6),ease=p*p*(3-2*p);camera.position.lerpVectors(intro.start,initialPosition,ease);camera.position.x-=3*Math.sin(Math.PI*ease);camera.position.y+=1.5*Math.sin(Math.PI*ease);controls.target.copy(initialTarget);}
   if(ui.panel)controls.autoRotate=false;
   if(time>5&&!reduced.matches&&!pausedEffects){sampleFrames++;if(delta>.04)heavySamples++;
@@ -149,6 +241,7 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
   if(renderer.getContext().isContextLost())throw Object.assign(new Error('WebGL context temporarily unavailable'),{code:'MUSEUM_CONTEXT_LOST'});
  }
  function capture(){
+  if(starfield?.active)return starfield.capture();
   // WebGL's default drawing buffer is captured synchronously after the complete mist composition.
   requireContext();renderMuseum();requireContext();const canvas=document.createElement('canvas');canvas.width=renderer.domElement.width;canvas.height=renderer.domElement.height;
   canvas.getContext('2d').drawImage(renderer.domElement,0,0);return canvas;
@@ -182,7 +275,9 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
   const canvas=document.createElement('canvas');canvas.width=1536;canvas.height=768;const context=canvas.getContext('2d'),image=context.createImageData(1536,768);
   for(let y=0;y<768;y++)image.data.set(pixels.subarray((767-y)*1536*4,(768-y)*1536*4),y*1536*4);context.putImageData(image,0,0);return canvas;
  }
- const api={...ui,ready,prepareIntro,startIntro,update,afterControls:updateHotspots,cancelIntro,capture,unwrap,dispose,
+ const api={...ui,ready,prepareIntro,startIntro,warmBackground,update,afterControls:updateHotspots,cancelIntro,capture,unwrap,dispose,
+  get exclusiveActive(){return !!starfield?.active;},
+  renderExclusive(delta){if(!starfield?.active)return starfieldOpening;starfield.render(delta);return true;},
   get introActive(){return !!intro;},get panel(){return ui.panel;},get hotspotsOn(){return ui.hotspotsOn;},get language(){return ui.language;},get effectsTier(){return effectsTier;},
   pauseEffects(value=true){pausedEffects=value;setReduced();}
  };
