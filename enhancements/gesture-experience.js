@@ -3,18 +3,18 @@ const text={
  zh:{title:'聚纹成器 · 青花全息',hint:'移动手掌或拖动屏幕，转动全息器形。捏合或按住蓄能，松开释放纹样光环，青花随后缓缓归位。',camera:'启用摄像头手势',stop:'关闭摄像头',exit:'返回展馆',privacy:'以当前展品器形与纹饰演绎的艺术光效。手势在本机识别，不上传或录制画面。',ready:'按住蓄能 · 松开舒展',shapeOnly:'纹饰暂未读取，器形光效仍可体验',loading:'正在准备手势识别…',cameraOn:'摄像头已开启，请伸出一只手',tracking:'已识别手掌 · 捏合蓄能，张开释放',noHand:'请把手掌放入画面',denied:'未获得摄像头权限，仍可触控体验',unsupported:'此浏览器暂不支持摄像头手势，仍可触控体验',error:'手势识别暂不可用，仍可触控体验',paused:'摄像头已关闭，可再次手动开启',failed:'体验暂时无法加载，请关闭后重试'},
  en:{title:'Porcelain hologram',hint:'Move your palm or drag to turn the hologram. Pinch or hold to gather energy; release to unfold the patterns into light, then watch the vessel reform.',camera:'Enable camera gestures',stop:'Turn camera off',exit:'Return to museum',privacy:'An artistic light study of the current exhibit’s form and decoration. Tracking stays on this device; video is not uploaded or recorded.',ready:'Hold to gather · Release to unfold',shapeOnly:'Decoration unavailable · The vessel light study still works',loading:'Preparing hand tracking…',cameraOn:'Camera on · Show one hand',tracking:'Hand detected · Pinch to gather, open to release',noHand:'Place your palm in the camera view',denied:'Camera permission was not granted; touch still works',unsupported:'Camera gestures are unavailable here; touch still works',error:'Hand tracking is unavailable; touch still works',paused:'Camera off · Enable it again to resume',failed:'This experience could not load. Close and try again.'}
 };
-Object.assign(text.zh,{hint:'触屏：拖动旋转，长按后松开星散。摄像头：伸食指，整手左移下一件／右移上一件，双指转动，张掌散开，握拳聚合。',ready:'选择光效，或拖动与长按体验',tracking:'手势已连接 · 单指切换 / 双指旋转 / 张掌散开 / 握拳聚合',orbit:'器形旋转',vortex:'涡流环绕',scatter:'全域星散',previous:'上一件全息展品',next:'下一件全息展品',switching:'正在准备展品；忙碌时划动不排队，完成后重新划动',switchError:'切换未完成，当前展品保留；请重新划动'});
-Object.assign(text.en,{hint:'Touch: drag to rotate; hold and release to scatter. Camera: index up, move your hand left/right for next/previous; two fingers rotate, open palm scatters, fist gathers.',ready:'Choose an effect, drag or hold to explore',tracking:'Tracking · One finger switches / two rotate / open scatters / fist gathers',orbit:'Vessel',vortex:'Vortex',scatter:'Starfield',previous:'Previous hologram',next:'Next hologram',switching:'Preparing exhibit. Busy swipes are not queued; make a fresh stroke when ready.',switchError:'Switch failed. Current exhibit retained; make a fresh stroke.'});
+Object.assign(text.zh,{hint:'触屏：拖动旋转，长按后松开星散。摄像头：伸食指，整手左移下一件／右移上一件，双指转动，张掌散开，握拳聚合。',ready:'选择光效，或拖动与长按体验',tracking:'手势已连接 · 单指切换 / 双指旋转 / 张掌散开 / 握拳聚合',orbit:'器形旋转',vortex:'涡流环绕',scatter:'全域星散',stellar:'青花星环',previous:'上一件全息展品',next:'下一件全息展品',switching:'正在准备展品；忙碌时划动不排队，完成后重新划动',switchError:'切换未完成，当前展品保留；请重新划动'});
+Object.assign(text.en,{hint:'Touch: drag to rotate; hold and release to scatter. Camera: index up, move your hand left/right for next/previous; two fingers rotate, open palm scatters, fist gathers.',ready:'Choose an effect, drag or hold to explore',tracking:'Tracking · One finger switches / two rotate / open scatters / fist gathers',orbit:'Vessel',vortex:'Vortex',scatter:'Starfield',stellar:'Stellar rings',previous:'Previous hologram',next:'Next hologram',switching:'Preparing exhibit. Busy swipes are not queued; make a fresh stroke when ready.',switchError:'Switch failed. Current exhibit retained; make a fresh stroke.'});
 
 text.zh.insecure='手机摄像头需要可信 HTTPS；电脑请使用 localhost 地址打开。触控仍可使用。';
 text.en.insecure='Camera access needs trusted HTTPS on a phone. On this computer, open the localhost address. Touch still works.';
 
 export function createGestureExperience({THREE,scene,camera,renderer,controls,isDesktop,getModel,getLanguage,cancelIntro,pauseEffects,getEffectsPaused,switchExhibit,cancelSwitch}){
- let mode=null,effect=null,pending=null,generation=0,disposed=false,state='ready',index=0,switchState='idle',holdTimer=0,recognized='',uiHidden=false,blockedUntil=0,diagnosticAt=0,diagnosticURL=null;
+ let mode=null,effect=null,pending=null,generation=0,disposed=false,state='ready',index=0,switchState='idle',holdTimer=0,recognized='',uiHidden=false,blockedUntil=0,blockedReason='',diagnosticAt=0,diagnosticURL=null;
  const diagnosticsEnabled=new URLSearchParams(location.search).has('diagnostics');
  const lifetime=new AbortController(),pointers=new Map();
  const dock=document.createElement('section');dock.id='museumGestureDock';dock.hidden=true;dock.setAttribute('aria-labelledby','gestureTitle');
- dock.innerHTML='<header><h2 id="gestureTitle"></h2><div class="gesture-window-controls"><button type="button" id="gestureHideUI"></button><button type="button" id="gestureExit"></button></div></header><div class="gesture-controls"><nav class="gesture-exhibits"><button type="button" id="gesturePrevious">‹</button><div><span id="gestureCounter"></span><strong id="gestureExhibitName"></strong></div><button type="button" id="gestureNext">›</button></nav><div class="gesture-actions"><button type="button" data-action="orbit"></button><button type="button" data-action="vortex"></button><button type="button" data-action="scatter"></button></div></div><p id="gestureSwitchStatus" role="status" aria-live="polite" hidden></p><p id="gestureHint"></p><div class="gesture-camera"><button type="button" id="gestureCamera"></button><span id="gestureStatus" role="status" aria-live="polite"></span></div><p class="note" id="gesturePrivacy"></p>';
+ dock.innerHTML='<header><h2 id="gestureTitle"></h2><div class="gesture-window-controls"><button type="button" id="gestureHideUI"></button><button type="button" id="gestureExit"></button></div></header><div class="gesture-controls"><nav class="gesture-exhibits"><button type="button" id="gesturePrevious">‹</button><div><span id="gestureCounter"></span><strong id="gestureExhibitName"></strong></div><button type="button" id="gestureNext">›</button></nav><div class="gesture-actions"><button type="button" data-action="orbit"></button><button type="button" data-action="vortex"></button><button type="button" data-action="scatter"></button><button type="button" data-action="stellar"></button></div></div><p id="gestureSwitchStatus" role="status" aria-live="polite" hidden></p><p id="gestureHint"></p><div class="gesture-camera"><button type="button" id="gestureCamera"></button><span id="gestureStatus" role="status" aria-live="polite"></span></div><p class="note" id="gesturePrivacy"></p>';
  document.body.append(dock);
  const guide=document.createElement('aside');guide.id='museumGestureGuide';guide.hidden=true;
  guide.innerHTML='<strong id="gestureGuideTitle"></strong><div class="gesture-guide-steps"></div><p id="gestureTouchHint"></p>';
@@ -29,7 +29,7 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
  function status(value){state=value;translate();}
  function translate(){
   const t=text[getLanguage()]||text.zh;
-  const zh=getLanguage()==='zh',bloom=!!mode?.bloom,scan=!!mode?.scan;
+  const zh=getLanguage()==='zh',bloom=!!mode?.bloom,scan=!!mode?.scan,stellar=!bloom&&!scan&&effect?.action==='stellar';
   dock.dataset.mode=scan?'scan':bloom?'bloom':'particles';
   $('gestureTitle').textContent=scan?(zh?'全息扫描台 · 器形光谱':'Surface scan · Porcelain spectrum'):bloom?(zh?'纹样活化 · 一器生花':'Living ornament · Porcelain in bloom'):t.title;
   $('gestureExit').textContent=mode?.onReturn?(zh?'返回创意工坊':'Back to workshop'):t.exit;
@@ -46,19 +46,23 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
   const steps=guide.querySelector('.gesture-guide-steps');
   const guideKey=String(zh)+'-'+bloom+'-'+scan;if(guide.dataset.language!==guideKey){steps.replaceChildren(...instructions.map(([name,hint])=>{const item=document.createElement('div'),label=document.createElement('b'),detail=document.createElement('span');label.textContent=name;detail.textContent=hint;item.append(label,detail);return item;}));guide.dataset.language=guideKey;}
   $('gestureTouchHint').textContent=scan?(zh?'触屏 / 鼠标：拖动旋转 · 长按松开散解；点“表面扫描”重新聚合，无需开启摄像头。':'Touch / mouse: drag to rotate; hold and release to disperse. Choose Surface scan to reform; a camera is optional.'):bloom?(zh?'触屏 / 鼠标：拖动旋转 · 长按后松开生花；也可用下方按钮舒展、回旋与收拢。':'Touch / mouse: drag to rotate; hold and release to bloom, or use the effect buttons below.'):(zh?'触屏 / 鼠标：拖动旋转 · 长按蓄能，松开星散':'Touch / mouse: drag to rotate; hold then release to scatter, or choose an effect below.');
+  if(stellar)$('gestureTouchHint').textContent=zh?'青花器形留在光环中央 · 拖动观察三重环流的前后层次；长按后松开星散。':'The vessel stays within three flowing rings. Drag to inspect their depth; hold and release to scatter.';
   if(!zh)$('gestureTouchHint').textContent+=' Camera: lower your finger or make a fist to recenter for another stroke in the same direction.';
   $('gestureCamera').textContent=effect?.cameraActive?t.stop:t.camera;$('gestureCamera').disabled=state==='loading'||!effect||!mode?.ready;
   $('gestureStatus').textContent=t[{camera:'cameraOn','no-hand':'noHand',ended:'paused'}[state]||state]||t.ready;
   if(scan&&state==='ready')$('gestureStatus').textContent=zh?'蓝白光谱扫描中 · 拖动旋转，或长按松开散解':'Blue-white scan active · Drag to rotate, or hold and release to disperse';
+  if(stellar&&state==='ready')$('gestureStatus').textContent=zh?'青花星环 · 拖动观察立体环流':'Stellar rings · Drag to inspect the flowing volumes';
   if(state==='tracking'&&recognized){const labels=zh?{one:'伸食指，整手横移 · 左下件／右上件',two:'双指 · 横移旋转，上下俯仰',open:'张掌 · 立体星散',fist:'握拳 · 聚合成器',pinch:'捏合 · 蓄能'}:{one:'Index up · Move hand left / right',two:'Two fingers · Spin and tilt',open:'Open palm · Spatial cloud',fist:'Fist · Gather',pinch:'Pinch · Charge'};if(bloom){labels.open=zh?'张掌 · 缠枝生花':'Open palm · Unfold flowers';labels.fist=zh?'握拳 · 聚纹成器':'Fist · Gather floral light';}if(labels[recognized])$('gestureStatus').textContent=labels[recognized];}
-  if(blockedUntil>performance.now())$('gestureStatus').textContent=zh?'忙碌时划动不排队；完成后反向重新划动':'Busy swipes are not queued; reverse with a fresh stroke when ready';
+  if(blockedReason==='busy'&&blockedUntil>performance.now())$('gestureStatus').textContent=zh?'忙碌时划动不排队；完成后反向重新划动':'Busy swipes are not queued; reverse with a fresh stroke when ready';
   const busy=switchState==='loading'||switchState==='moving';
   $('gestureCounter').textContent=`${String(index+1).padStart(2,'0')} / ${String(exhibits.length).padStart(2,'0')}`;
   $('gestureExhibitName').textContent=exhibits[index][getLanguage()]?.exhibit||exhibits[index].zh.exhibit;
   dock.querySelector('.gesture-exhibits').setAttribute('aria-busy',String(busy));
   for(const [id,key] of [['gesturePrevious','previous'],['gestureNext','next']]){$(id).setAttribute('aria-label',t[key]);$(id).disabled=busy||!effect||!mode?.ready;}
-  $('gestureSwitchStatus').hidden=!busy&&switchState!=='error';$('gestureSwitchStatus').textContent=busy?t.switching:t.switchError;
-  for(const button of dock.querySelectorAll('[data-action]')){button.textContent=scan?(zh?{orbit:'表面扫描',vortex:'光谱回旋',scatter:'全域散解'}:{orbit:'Surface scan',vortex:'Light vortex',scatter:'Disperse'})[button.dataset.action]:bloom?(zh?{orbit:'聚纹成器',vortex:'缠枝回旋',scatter:'一器生花'}:{orbit:'Gather',vortex:'Floral orbit',scatter:'Bloom'})[button.dataset.action]:t[button.dataset.action];button.setAttribute('aria-pressed',String((effect?.action||'orbit')===button.dataset.action));button.disabled=!effect||!mode?.ready;}
+  const cooldown=switchState==='idle'&&state==='tracking'&&recognized==='one'&&blockedReason==='cooldown'&&blockedUntil>performance.now();
+  const switchMessage=busy?t.switching:switchState==='error'?t.switchError:cooldown?(zh?'划动较快，请稍停后反向再划':'Pause briefly, then reverse for a fresh swipe.'):'';
+  const switchStatus=$('gestureSwitchStatus');if(switchStatus.textContent!==switchMessage)switchStatus.textContent=switchMessage;if(switchStatus.hidden!==!switchMessage)switchStatus.hidden=!switchMessage;
+  for(const button of dock.querySelectorAll('[data-action]')){const hidden=button.dataset.action==='stellar'&&(bloom||scan);if(hidden&&document.activeElement===button)$('gestureExit').focus({preventScroll:true});button.hidden=hidden;button.textContent=button.dataset.action==='stellar'?t.stellar:scan?(zh?{orbit:'表面扫描',vortex:'光谱回旋',scatter:'全域散解'}:{orbit:'Surface scan',vortex:'Light vortex',scatter:'Disperse'})[button.dataset.action]:bloom?(zh?{orbit:'聚纹成器',vortex:'缠枝回旋',scatter:'一器生花'}:{orbit:'Gather',vortex:'Floral orbit',scatter:'Bloom'})[button.dataset.action]:t[button.dataset.action];button.setAttribute('aria-pressed',String((effect?.action||'orbit')===button.dataset.action));button.disabled=hidden||!effect||!mode?.ready;}
  }
  function cancelPointers(){clearTimeout(holdTimer);holdTimer=0;pointers.clear();}
  function cancelInputs(){cancelPointers();effect?.cancelInputs();}
@@ -103,7 +107,7 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
  }
  function close(reason='return'){
   generation++;if(!mode)return;
-  const previous=mode;mode=null;blockedUntil=0;cancelSwitch();cancelInputs();effect?.setEnabled(false);effect?.setScanMode(false);effect?.setBloomMode(false);
+  const previous=mode;mode=null;blockedUntil=0;blockedReason='';cancelSwitch();cancelInputs();effect?.setEnabled(false);effect?.setScanMode(false);effect?.setBloomMode(false);
   if(diagnosticURL){URL.revokeObjectURL(diagnosticURL);diagnosticURL=null;}
   dock.querySelector('video')?.remove();dock.hidden=guide.hidden=true;setUIHidden(false,false);document.body.classList.remove('museum-gesture');
   controls.enabled=previous.enabled;controls.autoRotate=previous.auto;pauseEffects(previous.paused);
@@ -113,7 +117,7 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
   if(previous.onReturn)try{previous.onReturn(reason);}catch(error){console.warn('Museum experience return unavailable:',error);}
  }
  async function open(variant='particles',options={}){
-  if(disposed||mode)return false;cancelIntro('gesture');
+  if(disposed||mode)return false;blockedUntil=0;blockedReason='';cancelIntro('gesture');
   mode={enabled:controls.enabled,auto:controls.autoRotate,paused:getEffectsPaused(),focus:document.activeElement,bloom:variant==='bloom',scan:variant==='scan',ready:false,onReturn:typeof options?.onReturn==='function'?options.onReturn:null};
   controls.enabled=false;controls.autoRotate=false;pauseEffects(true);document.body.classList.add('museum-gesture');dock.hidden=guide.hidden=false;state='loading';translate();$('gestureExit').focus({preventScroll:true});
   // Clear the orbit's residual inertia without moving the saved museum viewpoint.
@@ -123,7 +127,7 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
   try{
    pending ||= import('./gesture-particles.js').catch(error=>{pending=null;throw error;});
    const {createGestureParticles}=await pending;if(!mode||token!==generation||disposed)return;
-   effect ||= createGestureParticles({THREE,scene,camera,renderer,isDesktop,getModel,onStatus:result=>{if(mode){recognized=result.gesture||'';status(result.state);}},onSwitch:direction=>{if(mode?.ready&&(switchState==='idle'||switchState==='error'))switchExhibit(direction);},onSwitchBlocked:()=>{if(mode?.ready){blockedUntil=performance.now()+750;translate();}}});
+   effect ||= createGestureParticles({THREE,scene,camera,renderer,isDesktop,getModel,onStatus:result=>{if(mode){recognized=result.gesture||'';status(result.state);}},onSwitch:direction=>{if(mode?.ready&&(switchState==='idle'||switchState==='error'))switchExhibit(direction);},onSwitchBlocked:reason=>{if(mode?.ready){blockedReason=reason==='cooldown'?'cooldown':'busy';blockedUntil=performance.now()+750;translate();}}});
    await effect.setScanMode(false);if(!mode||token!==generation||disposed)return;
    if(mode.bloom)try{await effect.setBloomMode(true);}catch(error){console.warn('Floral light: original particles remain available',error);if(!mode||token!==generation||disposed)return;mode.bloom=false;await effect.setBloomMode(false);}
    else await effect.setBloomMode(false);
@@ -163,5 +167,5 @@ export function createGestureExperience({THREE,scene,camera,renderer,controls,is
  listen(window,'blur',cancelInputs);
  listen(document,'visibilitychange',()=>{if(document.hidden&&mode){cancelInputs();effect?.stopCamera();dock.querySelector('video')?.remove();status('paused');}});
  listen(window,'pagehide',()=>close('pagehide'));listen(canvas,'webglcontextlost',()=>close('contextlost'));
- return {open,openBloom:options=>open('bloom',options),openScan:options=>open('scan',options),close,translate,galleryState(current,target,kind){index=current;switchState=kind;effect?.setSwitching(kind==='loading'||kind==='moving');translate();},changeModel(){if(mode&&effect){cancelPointers();const changed=effect.changeModel();if(changed&&mode.scan&&!effect.scanActive)mode.scan=false;translate();}},get active(){return !!mode;},update(delta){if(mode){controls.enabled=false;controls.autoRotate=false;if(!document.hidden)try{effect?.update(delta);updateDiagnostics();if(blockedUntil&&performance.now()>=blockedUntil){blockedUntil=0;translate();}}catch(error){console.warn('Gesture frame:',error);close('error');}}},dispose(){if(disposed)return;close('dispose');disposed=true;lifetime.abort();effect?.dispose();effect=null;dock.remove();guide.remove();showUI.remove();}};
+ return {open,openBloom:options=>open('bloom',options),openScan:options=>open('scan',options),close,translate,galleryState(current,target,kind){index=current;switchState=kind;if(blockedReason==='cooldown'&&(kind==='loading'||kind==='moving'||kind==='error')){blockedUntil=0;blockedReason='';}effect?.setSwitching(kind==='loading'||kind==='moving');translate();},changeModel(){if(mode&&effect){cancelPointers();const changed=effect.changeModel();if(changed&&blockedReason==='cooldown'){blockedUntil=0;blockedReason='';}if(changed&&mode.scan&&!effect.scanActive)mode.scan=false;translate();}},get active(){return !!mode;},update(delta){if(mode){controls.enabled=false;controls.autoRotate=false;if(!document.hidden)try{effect?.update(delta);updateDiagnostics();if(blockedUntil&&performance.now()>=blockedUntil){blockedUntil=0;blockedReason='';translate();}}catch(error){console.warn('Gesture frame:',error);close('error');}}},dispose(){if(disposed)return;close('dispose');disposed=true;lifetime.abort();effect?.dispose();effect=null;dock.remove();guide.remove();showUI.remove();}};
 }

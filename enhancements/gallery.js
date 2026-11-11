@@ -68,7 +68,17 @@ export function createGallery({THREE,renderer,scene,camera,controls,loadExhibit,
    if(token!==serial)return;
    // Compile against the existing lights, then spread texture uploads across frames.
    const staging=new THREE.Scene();staging.add(candidate);
-   renderer.compile(staging,camera,scene);
+   const programsBefore=new Set(renderer.info.programs);let compileFailed=false;
+   try{renderer.compile(staging,camera,scene);}catch(error){compileFailed=true;throw error;}
+   finally{
+    try{
+     const gl=renderer.getContext();
+     // shortcut: native program handles are pinned to Three r160; recheck when upgrading.
+     for(const program of renderer.info.programs)if(!programsBefore.has(program)){
+      for(const shader of gl.getAttachedShaders(program.program)||[])gl.deleteShader(shader);
+     }
+    }catch(error){if(!compileFailed)throw error;console.warn('Exhibit shader cleanup:',error);}
+   }
    checkAbort(controller.signal);
    if(token!==serial)return;
    const textures=new Set();candidate.traverse(mesh=>{if(!mesh.isMesh)return;for(const material of [].concat(mesh.material))for(const value of Object.values(material))if(value?.isTexture)textures.add(value);});

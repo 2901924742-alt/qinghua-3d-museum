@@ -67,7 +67,7 @@ const wordsSource = source.slice(source.indexOf('const words='), source.indexOf(
             document: {createElement(type) {assert.equal(type, 'canvas'); return {width: 0, height: 0,
                 getContext: () => ctx, toBlob(callback) {blobs.push(callback);}};}},
             console: {warn() {}},
-            updateHistory() {}, drawProfile() {}, prepareWire() {},
+            updateHistory() {}, drawProfile() {}, placePreview() {}, prepareWire() {},
             render() {renderCalls++;return true;}, scheduleRender() {renderCalls++;}});
         context.shapingTool.value='precision';const customHeight=node();context.band.querySelector=()=>customHeight;
         vm.runInContext(wordsSource + ';this.t=words[' + JSON.stringify(language) + ']', context);
@@ -78,7 +78,7 @@ const wordsSource = source.slice(source.indexOf('const words='), source.indexOf(
             lineWith('let active=true,suspended=false,model=null,'),
             lineWith('let wireAttempted=false,'), lineWith('const bands=[.08,'), 'model=__model;',
             "const say=text=>{status.textContent=text;};",
-            ...['updatePosterControls', 'clearExports', 'flushDraft', 'queueDraft', 'mapping', 'radiusAt', 'selection', 'syncHeight', 'syncShapingTool', 'applyPending',
+            ...['updatePosterControls', 'clearExports', 'flushDraft', 'queueDraft', 'previewNormalization', 'fitPreviewUnit', 'fitFraming', 'mapping', 'radiusAt', 'selection', 'syncHeight', 'syncShapingTool', 'applyPending',
                 'finishEdit', 'finishRotation', 'changed', 'beginBand', 'nudge', 'flushOnLeave', 'suspend', 'resume',
                 'clearSection', 'syncView', 'dispose'].map(declaration),
             registration("listen(radius,'input'"), registration("listen(band,'change'"), registration("listen(shapingTool,'change'"),

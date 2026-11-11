@@ -22,8 +22,8 @@ const posterWords={
 };
 
 const shapingWords={
- zh:{shapingTool:'造形方式',precision:'轮廓精修',natural:'自然拉坯',precisionHint:'轮廓精修：左右拖动调整所选高度的半径，竖向移动不改变高度。',naturalHint:'自然拉坯：拖动器壁塑形，接触与竖向移动会影响器形。',customHeight:'自选高度',radiusLimited:'已达到该处安全造形范围；半径读数为实际可用值，器形已保留。',profileKeys:'画布方向键：上 / 下选择高度，左 / 右精调半径；按住 Shift 加大步幅。半径滑块与按钮保持设计高度。'},
- en:{shapingTool:'Shaping tool',precision:'Precision profile',natural:'Natural clay',precisionHint:'Precision profile: drag sideways to adjust radius at the selected height. Vertical motion keeps this height.',naturalHint:'Natural clay: drag the wall to shape it. Contact and vertical motion affect the form.',customHeight:'Custom height',radiusLimited:'This band has reached its safe shaping range. The radius readout shows the achieved value; your vessel is preserved.',profileKeys:'Canvas arrow keys: Up / Down select height, Left / Right adjust radius. Hold Shift for larger steps. Radius controls keep the design height.'}
+ zh:{fit:'适应画面',fitNeeded:'器形超出当前取景，请点击“适应画面”。设计尺寸未改变。',shapingTool:'造形方式',precision:'轮廓精修',natural:'自然拉坯',precisionHint:'轮廓精修：左右拖动调整所选高度的半径，竖向移动不改变高度。',naturalHint:'自然拉坯：拖动器壁塑形，接触与竖向移动会影响器形。',customHeight:'自选高度',radiusLimited:'已达到该处安全造形范围；半径读数为实际可用值，器形已保留。',profileKeys:'画布方向键：上 / 下选择高度，左 / 右精调半径；按住 Shift 加大步幅。半径滑块与按钮保持设计高度。'},
+ en:{fit:'Fit canvas',fitNeeded:'The vessel exceeds this framing. Choose Fit canvas; design dimensions are unchanged.',shapingTool:'Shaping tool',precision:'Precision profile',natural:'Natural clay',precisionHint:'Precision profile: drag sideways to adjust radius at the selected height. Vertical motion keeps this height.',naturalHint:'Natural clay: drag the wall to shape it. Contact and vertical motion affect the form.',customHeight:'Custom height',radiusLimited:'This band has reached its safe shaping range. The radius readout shows the achieved value; your vessel is preserved.',profileKeys:'Canvas arrow keys: Up / Down select height, Left / Right adjust radius. Hold Shift for larger steps. Radius controls keep the design height.'}
 };
 
 export function mountPottery(container,{language='zh',THREE,renderPreview,onPaintShape=null,contextCanvas=null,releaseSceneGPU=null}){
@@ -39,11 +39,11 @@ export function mountPottery(container,{language='zh',THREE,renderPreview,onPain
  const $=selector=>root.querySelector(selector),profile=$('[data-testid="potteryProfile"]'),preview=$('[data-testid="potteryPreview"]'),ctx=profile.getContext('2d'),status=$('.innovation-status'),draftStatus=$('.pottery-draft-status'),preset=$('[data-control="preset"]'),radius=$('[data-control="radius"]'),band=$('[data-control="band"]'),angle=$('[data-control="angle"]'),poster=$('[data-action="poster"]'),posterImage=$('[data-testid="potteryPoster"]');
  const sectionButton=$('[data-view="section"]'),sectionControls=$('[data-testid="potterySectionControls"]'),sectionHeight=$('[data-control="sectionHeight"]'),sectionOutput=$('[data-value="sectionHeight"]');
  const reference=$('[data-control="reference"]'),referenceReadout=$('[data-testid="potteryReferenceReadout"]'),references=new Map();let referenceKind='off';
- profile.tabIndex=0;
+ profile.tabIndex=0;profile.insertAdjacentHTML('afterend',`<div class="innovation-actions"><button type="button" data-action="fit">${t.fit}</button><span data-testid="potteryFitStatus" role="status" hidden>${t.fitNeeded}</span></div>`);
  profile.setAttribute('aria-label',`${t.profile}. ${t.profileKeys}`);profile.insertAdjacentHTML('afterend',`<p class="innovation-note">${t.profileKeys}</p>`);
  const shapingControls=$('.pottery-shape-controls'),shapingTool=$('[data-control="shapingTool"]');profile.insertAdjacentElement('afterend',shapingControls);shapingControls.insertAdjacentHTML('afterend',`<p class="innovation-note" data-testid="potteryShapingHint">${t.precisionHint}</p>`);const shapingHint=$('[data-testid="potteryShapingHint"]');
  const listen=(node,event,fn)=>node.addEventListener(event,(...args)=>{if(!suspended)fn(...args);},{signal:lifetime.signal});
- let active=true,suspended=false,model=null,scene=null,camera=null,mesh=null,material=null,wireMaterial=null,renderTimer=null,saveTimer=null,lastRender=-Infinity,renderFailed=false,contextUnavailable=false,posterJobToken=null,draftDirty=false,draftProtected=false,edit=null,pending=null,rotation=null,mode='solid',view='front',generation=0,shapeRevision=0,importToken=0,pngURL=null,designURL=null;
+ let active=true,suspended=false,model=null,scene=null,camera=null,mesh=null,material=null,wireMaterial=null,renderTimer=null,saveTimer=null,lastRender=-Infinity,renderFailed=false,contextUnavailable=false,posterJobToken=null,draftDirty=false,draftProtected=false,edit=null,pending=null,rotation=null,mode='solid',view='front',generation=0,shapeRevision=0,importToken=0,pngURL=null,designURL=null,profileScale=null,previewUnit=null,previewNeedsFit=false;
  let wireAttempted=false,wireTexture=null,wireCanvas=null,section=null,sectionBlocked=false;
  const bands=[.08,.28,.5,.72,.94];let selected=.5,frame=null;
  for(const item of root.querySelectorAll('button,input,select'))item.disabled=true;
@@ -54,9 +54,9 @@ export function mountPottery(container,{language='zh',THREE,renderPreview,onPain
  function updateHistory(p=model.getProfile()){$('[data-action="undo"]').disabled=!p.canUndo;$('[data-action="redo"]').disabled=!p.canRedo;preset.value=p.preset;}
  function flushDraft(){if(saveTimer!==null)clearTimeout(saveTimer);saveTimer=null;if(!draftDirty||!model)return;if(draftProtected){draftStatus.textContent=t.draftProtected;return;}try{localStorage.setItem(draftKey,model.serialize());draftDirty=false;draftStatus.textContent=t.draftSaved;}catch{draftStatus.textContent=t.draftFailed;}}
  function queueDraft(){if(!active||suspended)return;draftDirty=true;if(saveTimer!==null)clearTimeout(saveTimer);saveTimer=setTimeout(flushDraft,500);}
- function mapping(p,guide=references.get(referenceKind)){
+ function mapping(p,guide=references.get(referenceKind),fit=false){
   const ys=p.outer.map(point=>point[1]),minY=Math.min(...ys),height=Math.max(.01,Math.max(...ys)-minY),maxR=Math.max(.1,p.maxR,guide?guide.maxR*height/guide.height:0);
-  return {minY,height,scale:Math.min(416/(maxR*2),416/height),cx:256,bottom:464};
+  return {minY,height,scale:!fit&&profileScale!==null?profileScale:Math.min(416/(maxR*2),416/height),cx:256,bottom:464};
  }
  function prepareReference(kind){
   if(kind==='off'||references.has(kind))return;let sample=null;
@@ -70,7 +70,7 @@ export function mountPottery(container,{language='zh',THREE,renderPreview,onPain
  function syncHeight(){const index=bands.findIndex(value=>Math.abs(value-selected)<1e-5),custom=band.querySelector('[data-custom-height]');custom.hidden=index>=0;if(index<0)custom.textContent=`${t.customHeight} · ${(selected*100).toFixed(1)}%`;band.value=index<0?'custom':String(index);}
  function updateControls(p){const s=selection(p);if(!edit?.numeric){radius.value=String(Math.max(.5,Math.min(16,s.r)));radius.defaultValue=radius.value;}$('[data-value="radius"]').textContent=s.r.toFixed(2);$('.pottery-readout').textContent=`${t.units} · H ${p.height.toFixed(2)} / R ${p.maxR.toFixed(2)}`;updateHistory(p);}
  function drawProfile(includeReference=true,includeSelection=true){
-  const p=model.getProfile(),guide=includeReference?references.get(referenceKind):null;frame=edit?.map||mapping(p,guide);const map=frame;
+  const p=model.getProfile(),guide=includeReference?references.get(referenceKind):null;frame=!includeReference&&!includeSelection?mapping(p,null,true):edit?.map||mapping(p,guide);const map=frame;if(includeSelection)$('[data-testid="potteryFitStatus"]').hidden=2*Math.max(p.maxR,guide?guide.maxR*map.height/guide.height:0)*map.scale<=416+1e-6&&map.height*map.scale<=416+1e-6;
   ctx.fillStyle='#071325';ctx.fillRect(0,0,512,512);ctx.lineWidth=1;ctx.strokeStyle='#5b8ebe24';
   for(let x=48;x<=464;x+=32){ctx.beginPath();ctx.moveTo(x,48);ctx.lineTo(x,464);ctx.stroke();}
   for(let y=48;y<=464;y+=32){ctx.beginPath();ctx.moveTo(48,y);ctx.lineTo(464,y);ctx.stroke();}
@@ -87,6 +87,14 @@ export function mountPottery(container,{language='zh',THREE,renderPreview,onPain
   updateControls(p);
  }
  function applyPending(){if(!pending||!edit)return false;const now=performance.now(),target=pending;pending=null;const changed=edit.numeric||edit.precision?model.setRadius(target.r,target.y):model.sculpt(target.r,target.y,Math.max(.016,Math.min(.125,(now-edit.time)/1000)));edit.time=now;if(changed){shapeRevision++;edit.changed=true;clearExports();queueDraft();return true;}return false;}
+ function previewNormalization(){const p=model.getProfile(),box=model.geometry.boundingBox;return (box.max.y-box.min.y)/(p.height+(p.outer[p.outer.length-1][0]-p.inner[p.inner.length-1][0])/4);}
+ function fitPreviewUnit(){return previewNormalization()*Math.min(1,7.4*Math.sin(33*Math.PI/360)*.85/model.geometry.boundingSphere.radius);}
+ function fitFraming(){profileScale=mapping(model.getProfile(),undefined,true).scale;previewUnit=fitPreviewUnit();previewNeedsFit=false;}
+ function placePreview(fit=false){
+  const s=(fit?fitPreviewUnit():previewUnit??fitPreviewUnit())/previewNormalization(),r=model.geometry.boundingSphere.radius*s;
+  previewNeedsFit=!fit&&r>=7.2;if(!fit&&r>7.4*Math.sin(33*Math.PI/360)*.85)$('[data-testid="potteryFitStatus"]').hidden=false;if(previewNeedsFit)return false;
+  mesh.scale.setScalar(s);mesh.position.copy(model.geometry.boundingBox.min).add(model.geometry.boundingBox.max).multiplyScalar(-s/2);return true;
+ }
  function updateCamera(){const yaw=Number(angle.value)*Math.PI/180,pitch=view==='rim'||view==='section'?.58:.12,distance=7.4;camera.position.set(Math.sin(yaw)*Math.cos(pitch)*distance,Math.sin(pitch)*distance,Math.cos(yaw)*Math.cos(pitch)*distance);camera.lookAt(0,0,0);camera.updateMatrixWorld();}
  function syncView(){for(const button of root.querySelectorAll('[data-view]'))button.setAttribute('aria-pressed',String(button.dataset.view===view));sectionControls.hidden=view!=='section';sectionButton.disabled=sectionBlocked;sectionHeight.disabled=sectionBlocked;root.dataset.section=sectionBlocked?'unavailable':view==='section'&&section?'active':'full';}
  function clearSection(){
@@ -113,7 +121,7 @@ export function mountPottery(container,{language='zh',THREE,renderPreview,onPain
   for(const part of [section.back,section.front]){part.position.copy(mesh.position);part.quaternion.copy(mesh.quaternion);part.scale.copy(mesh.scale);}
   const value=Math.max(10,Math.min(90,Number(sectionHeight.value)||55));sectionOutput.textContent=`${value}%`;
   section.plane.set(new THREE.Vector3(0,-1,0),box.min.y+(box.max.y-box.min.y)*value/100).applyMatrix4(mesh.matrixWorld);
-  section.plane.coplanarPoint(section.cap.position);section.cap.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),section.plane.normal.clone().negate());
+  section.plane.coplanarPoint(section.cap.position);section.cap.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),section.plane.normal.clone().negate());section.cap.scale.copy(mesh.scale);
  }
  function prepareWire(){
   if(wireAttempted)return;wireAttempted=true;let tile=null,texture=null;
@@ -124,10 +132,10 @@ export function mountPottery(container,{language='zh',THREE,renderPreview,onPain
   }catch(error){texture?.dispose();if(tile)tile.width=tile.height=0;console.warn('Pottery light-field grid unavailable; wireframe remains available:',error);return;}
   wireTexture=texture;wireCanvas=tile;wireMaterial.map=texture;wireMaterial.color.set(0xffffff);wireMaterial.wireframe=false;wireMaterial.side=THREE.FrontSide;wireMaterial.needsUpdate=true;root.dataset.wire='grid';
  }
- function render(){
+ function render(fit=false){
   renderTimer=null;if(!active||suspended||!model)return false;applyPending();drawProfile();lastRender=performance.now();if(renderFailed||contextUnavailable)return false;
   const sliced=view==='section';
-  try{const box=model.geometry.boundingBox;mesh.position.y=-(box.min.y+box.max.y)/2;mesh.material=mode==='wire'?wireMaterial:material;if(sliced)updateSection(box);updateCamera();renderPreview(scene,camera,preview,sliced);if(contextUnavailable)return false;syncView();return true;}
+  try{const box=model.geometry.boundingBox;if(!placePreview(fit)){say(t.fitNeeded);return false;}mesh.material=mode==='wire'?wireMaterial:material;if(sliced)updateSection(box);updateCamera();renderPreview(scene,camera,preview,sliced);if(contextUnavailable)return false;syncView();return true;}
   catch(error){
    if(error?.code==='MUSEUM_CONTEXT_LOST'){loseContext();return false;}
    if(sliced){
@@ -168,7 +176,7 @@ export function mountPottery(container,{language='zh',THREE,renderPreview,onPain
   scene=new THREE.Scene();scene.background=new THREE.Color(0x081426);camera=new THREE.PerspectiveCamera(33,1,.1,30);
   scene.add(new THREE.HemisphereLight(0xe4f1ff,0x233b5d,2.2));const key=new THREE.DirectionalLight(0xffffff,2.8);key.position.set(-3,4,5);scene.add(key);const rim=new THREE.DirectionalLight(0x75b5ff,1.8);rim.position.set(3,2,-3);scene.add(rim);
   material=new THREE.MeshPhysicalMaterial({color:0xf7f5eb,roughness:.3,metalness:0,clearcoat:.6,clearcoatRoughness:.2});wireMaterial=new THREE.MeshBasicMaterial({color:0x3b8bc7,wireframe:true});mesh=new THREE.Mesh(model.geometry,material);mesh.name='museum-pottery-vessel';scene.add(mesh);
-  for(const item of root.querySelectorAll('button,input,select'))item.disabled=false;root.setAttribute('aria-busy','false');updateHistory();render();
+  fitFraming();for(const item of root.querySelectorAll('button,input,select'))item.disabled=false;root.setAttribute('aria-busy','false');updateHistory();render();
   listen(profile,'pointerdown',event=>{
    if(edit||!event.isPrimary||event.button!==0)return;const rect=profile.getBoundingClientRect(),p=model.getProfile(),map=mapping(p),x=(event.clientX-rect.left)*512/rect.width,y=(event.clientY-rect.top)*512/rect.height,rawY=map.minY+(map.bottom-y)/map.scale;
    if(rawY<map.minY||rawY>map.minY+map.height)return;const r=radiusAt(p,rawY);
@@ -182,8 +190,9 @@ export function mountPottery(container,{language='zh',THREE,renderPreview,onPain
   listen(profile,'keydown',event=>{if(event.ctrlKey||event.metaKey||event.altKey||!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(event.key))return;event.preventDefault();finishEdit();if(event.key==='ArrowUp'||event.key==='ArrowDown'){selected=Math.max(.02,Math.min(.98,selected+(event.key==='ArrowUp'?1:-1)*(event.shiftKey?.05:.01)));syncHeight();scheduleRender();}else nudge((event.key==='ArrowRight'?1:-1)*(event.shiftKey?.5:.1));});
   listen($('[data-action="narrow"]'),'click',()=>nudge(-1));listen($('[data-action="widen"]'),'click',()=>nudge(1));
   for(const action of ['undo','redo'])listen($(`[data-action="${action}"]`),'click',()=>{finishEdit();if(model[action]())changed();updateHistory();});
+  listen($('[data-action="fit"]'),'click',()=>{finishEdit();fitFraming();clearExports();scheduleRender();});
   listen(reference,'change',()=>{finishEdit();try{prepareReference(reference.value);referenceKind=reference.value;drawProfile();if(status.textContent===t.referenceFailed)say(t.ready);}catch(error){reference.value=referenceKind;say(t.referenceFailed);console.warn('Pottery reference unavailable:',error);}});
-  listen(preset,'change',()=>{finishEdit();const wasProtected=draftProtected,didReset=model.reset(preset.value);draftProtected=false;if(didReset)changed();else if(wasProtected)queueDraft();});listen($('[data-action="reset"]'),'click',()=>{finishEdit();const wasProtected=draftProtected,didReset=model.reset(preset.value);draftProtected=false;if(didReset)changed();else if(wasProtected)queueDraft();});
+  listen(preset,'change',()=>{finishEdit();const wasProtected=draftProtected,didReset=model.reset(preset.value);draftProtected=false;if(didReset){fitFraming();changed();}else if(wasProtected)queueDraft();});listen($('[data-action="reset"]'),'click',()=>{finishEdit();const wasProtected=draftProtected,didReset=model.reset(preset.value);draftProtected=false;if(didReset){fitFraming();changed();}else if(wasProtected)queueDraft();});
   for(const button of root.querySelectorAll('[data-mode]'))listen(button,'click',()=>{if(mode===button.dataset.mode)return;mode=button.dataset.mode;if(mode==='wire')prepareWire();for(const item of root.querySelectorAll('[data-mode]'))item.setAttribute('aria-pressed',String(item===button));clearExports();scheduleRender();});
   for(const button of root.querySelectorAll('[data-view]'))listen(button,'click',()=>{if(view===button.dataset.view||button.dataset.view==='section'&&sectionBlocked)return;view=button.dataset.view;if(view!=='section')clearSection();syncView();clearExports();scheduleRender();});
   listen(sectionHeight,'input',()=>{if(view!=='section'||sectionBlocked)return;clearExports();scheduleRender();});
@@ -195,11 +204,11 @@ export function mountPottery(container,{language='zh',THREE,renderPreview,onPain
   listen(root,'keydown',event=>{if(!event.ctrlKey&&!event.metaKey||event.target.matches('input,select'))return;const key=event.key.toLowerCase();if(key==='z'||key==='y'){event.preventDefault();$(`[data-action="${key==='y'||event.shiftKey?'redo':'undo'}"]`).click();}});
   listen($('[data-action="saveDesign"]'),'click',()=>{finishEdit();try{const nextURL=URL.createObjectURL(new Blob([model.serialize()],{type:'application/json;charset=utf-8'}));if(designURL)URL.revokeObjectURL(designURL);designURL=nextURL;const link=$('[data-action="designDownload"]');link.href=designURL;link.download='qinghua-original-vessel.json';link.hidden=false;say(t.designReady);}catch{say(t.importFailed);}});
   listen($('[data-action="paintShape"]'),'click',()=>{finishEdit();finishRotation();try{onPaintShape?.(model.serialize());}catch{say(t.importFailed);}});
-  listen($('[data-action="importDesign"]'),'change',async event=>{const file=event.target.files?.[0],token=++importToken;event.target.value='';if(!file)return;if(file.size>131072){say(t.importFailed);return;}finishEdit();const revision=shapeRevision;try{const text=await file.text();if(!active||token!==importToken)return;if(revision!==shapeRevision||edit||pending){say(t.importCancelled);return;}if(model.restore(text)){draftProtected=false;changed();say(t.imported);}else say(t.importFailed);}catch{if(active&&token===importToken)say(t.importFailed);}});
+  listen($('[data-action="importDesign"]'),'change',async event=>{const file=event.target.files?.[0],token=++importToken;event.target.value='';if(!file)return;if(file.size>131072){say(t.importFailed);return;}finishEdit();const revision=shapeRevision;try{const text=await file.text();if(!active||token!==importToken)return;if(revision!==shapeRevision||edit||pending){say(t.importCancelled);return;}if(model.restore(text)){draftProtected=false;fitFraming();changed();say(t.imported);}else say(t.importFailed);}catch{if(active&&token===importToken)say(t.importFailed);}});
   listen(poster,'click',async()=>{
-   if(contextUnavailable||posterJobToken!==null)return;finishEdit();finishRotation();if(renderFailed){say(t.renderFailed);return;}if(renderTimer!==null)clearTimeout(renderTimer);renderTimer=null;if(!render()){if(!contextUnavailable)say(t.renderFailed);return;}const token=++generation;posterJobToken=token;updatePosterControls();
+   if(contextUnavailable||posterJobToken!==null)return;finishEdit();finishRotation();if(renderFailed){say(t.renderFailed);return;}if(renderTimer!==null)clearTimeout(renderTimer);renderTimer=null;if(!render()){if(!contextUnavailable)say(previewNeedsFit?t.fitNeeded:t.renderFailed);return;}const token=++generation;posterJobToken=token;updatePosterControls();
    try{const p=model.getProfile(),sheet=document.createElement('canvas');sheet.width=1280;sheet.height=900;const draw=sheet.getContext('2d');if(!draw)throw new Error('Canvas 2D unavailable');draw.fillStyle='#081426';draw.fillRect(0,0,1280,900);draw.strokeStyle='#7eadd7';draw.lineWidth=2;draw.strokeRect(24,24,1232,852);draw.fillStyle='#e8f4ff';draw.font='bold 42px sans-serif';draw.fillText(t.posterTitle,56,92);draw.fillStyle='#9bc7ee';draw.font='21px sans-serif';draw.fillText(view==='section'?t.sectionNote:t.note,56,138,1168);
-    try{drawProfile(false,false);draw.drawImage(profile,56,198,512,512);}finally{drawProfile();}draw.drawImage(preview,650,198,512,512);draw.font='25px sans-serif';draw.fillText(t.profile,56,764);draw.font=view==='section'?'21px sans-serif':'25px sans-serif';draw.fillText(view==='section'?`${t.section} · ${Math.max(10,Math.min(90,Number(sectionHeight.value)||55))}% ${t.posterBase}`:t.preview,650,764,512);
+    try{if(!render(true))throw new Error('Pottery capture unavailable');drawProfile(false,false);draw.drawImage(profile,56,198,512,512);draw.drawImage(preview,650,198,512,512);}finally{if(active){placePreview();render();}}draw.font='25px sans-serif';draw.fillText(t.profile,56,764);draw.font=view==='section'?'21px sans-serif':'25px sans-serif';draw.fillText(view==='section'?`${t.section} · ${Math.max(10,Math.min(90,Number(sectionHeight.value)||55))}% ${t.posterBase}`:t.preview,650,764,512);
     draw.font='18px sans-serif';draw.fillText(`${t.posterHeight}: ${p.height.toFixed(2)} · ${t.units}`,56,794,512);draw.fillText(`${t.posterRadius}: ${p.maxR.toFixed(2)} · ${t.units}`,56,820,512);
     for(const [x,color,width,label]of [[650,'#bddfff',3,t.posterOuter],[912,'#6fa6d0',1.5,t.posterInner]]){draw.strokeStyle=color;draw.lineWidth=width;draw.beginPath();draw.moveTo(x,788);draw.lineTo(x+32,788);draw.stroke();draw.fillStyle=color;draw.fillText(label,x+44,794);}
     draw.fillStyle='#9bc7ee';draw.fillText(t.posterSampling,650,820,512);draw.fillText(t.posterFoot,56,844,1168);

@@ -1185,16 +1185,23 @@ function animate(timestamp = 0){
     if (document.hidden) return;
     if (renderer.getContext().isContextLost()) {animationClock.getDelta();return;}
     if(loadingScreen.style.display!=='none'){animationClock.getDelta();return;}
-    monitorDesktopQuality(timestamp);
-    // 高刷新率电脑最高重绘 60 次/秒；手机沿用当前渲染节奏。
+    const exclusive = safeExperience(experience=>experience.exclusiveActive) === true;
+    if (!exclusive) monitorDesktopQuality(timestamp);
+    // The close-up shares this loop; the unchanged museum keeps its mobile cadence.
+    const limitFrames = isDesktopRenderer() || exclusive;
     const interval = 1000 / 60;
     const sinceFrame = timestamp - previousFrameAt;
     // 容忍 rAF 的轻微时间抖动，避免 60Hz 屏幕误跳过一帧。
     const dueFrames = Math.floor((Math.max(0, sinceFrame) + 2) / interval);
-    if (isDesktopRenderer() && previousFrameAt && dueFrames === 0) return;
-    previousFrameAt = isDesktopRenderer() && previousFrameAt
+    if (limitFrames && previousFrameAt && dueFrames === 0) return;
+    previousFrameAt = limitFrames && previousFrameAt
         ? previousFrameAt + dueFrames * interval : timestamp;
-    const delta = Math.min(animationClock.getDelta(), 0.1);
+    const rawDelta = animationClock.getDelta();
+    const delta = Math.min(rawDelta, 0.1);
+    if (exclusive && safeExperience(experience=>experience.renderExclusive(rawDelta)) === true) {
+        previousRafAt = qualityWindowAt = qualitySamples = qualityTotalMs = 0;
+        return;
+    }
     const elapsed = animationClock.elapsedTime;
     safeExperience(experience=>experience.update(delta));
     controls.update(delta);
@@ -1294,19 +1301,40 @@ restoreBtn.addEventListener("click",()=>{
     hideBtn.focus({preventScroll:true});
 });
 // Optional enhancements cannot prevent the original museum from loading.
-import('./enhancements/experience.js').then(({createExperience}) => {
+const backgroundWarmLifetime=new AbortController();
+window.addEventListener('pagehide',()=>backgroundWarmLifetime.abort(),{once:true});
+const experiencePromise=import('./enhancements/experience.js').then(({createExperience}) => {
     museumExperience = createExperience({THREE, scene, renderer, camera, controls,
         renderMuseum: () => renderMuseum(), isDesktop: isDesktopRenderer, hideInfo, restoreInfo,
-        loadExhibit, disposeExhibit, releaseSceneGPU, onExhibitChange:model=>{exhibitModel=model;queueNextExhibit();}});
+        loadExhibit, disposeExhibit, releaseSceneGPU, legacyBlackHole:blackHoleGroup,
+        resumeMuseum:()=>{resetRenderQuality();animationClock.getDelta();previousFrameAt=previousRafAt=qualityWindowAt=qualitySamples=qualityTotalMs=0;}, onExhibitChange:model=>{exhibitModel=model;queueNextExhibit();}});
     window.museumEnhancements = museumExperience;
     if (exhibitModel) safeExperience(experience=>experience.ready(exhibitModel));
-}).catch(disableExperience);
+    return museumExperience;
+}).catch(error=>{disableExperience(error);return null;});
 async function revealMuseum(){
     // Keep expensive GPU preparation out of the SVG's continuous growth phase.
     await window.museumLoading.wait();
     if(window.museumLoadErrorKey)return;
     window.museumLoading.status('scenePreparing','正在准备展馆画面…');
     await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    // One bounded admission window covers both optional imports before the intro is revealed.
+    const warmup=new AbortController(),deadline=performance.now()+1500,cancelWarmup=()=>warmup.abort();
+    const warmTimer=setTimeout(cancelWarmup,1500);
+    backgroundWarmLifetime.signal.addEventListener('abort',cancelWarmup,{once:true});
+    renderer.domElement.addEventListener('webglcontextlost',cancelWarmup,{once:true});
+    try{
+        if(backgroundWarmLifetime.signal.aborted||document.hidden)cancelWarmup();
+        await Promise.race([
+            new Promise(resolve=>{if(warmup.signal.aborted)resolve(false);else warmup.signal.addEventListener('abort',()=>resolve(false),{once:true});}),
+            experiencePromise.then(experience=>{
+                if(warmup.signal.aborted||performance.now()>=deadline||window.museumLoadErrorKey)return false;
+                return experience?.warmBackground({signal:warmup.signal,deadline})??false;
+            })
+        ]);
+    }catch(error){console.warn('Museum background preparation unavailable:',error);}
+    finally{clearTimeout(warmTimer);warmup.abort();backgroundWarmLifetime.signal.removeEventListener('abort',cancelWarmup);renderer.domElement.removeEventListener('webglcontextlost',cancelWarmup);}
+    if(window.museumLoadErrorKey)return;
     // r160's asynchronous readiness polling can stall on some mobile WebGL drivers.
     renderer.compile(scene,camera);
     safeExperience(experience=>experience.prepareIntro());

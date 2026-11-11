@@ -138,7 +138,8 @@ async function checkReveal(compileThrows) {
  const calls={compile:0,render:0,start:0,raf:0}, failure=new Error('Injected compile failure');
  const renderer={compile(){calls.compile++; if(compileThrows) throw failure;},
   get compileAsync(){assert.fail('revealMuseum must never access compileAsync');}};
- const context={Promise,renderer,scene:{},camera:{},experienceLoaded:Promise.resolve(),
+ const warmLifetime=new AbortController();renderer.domElement=new EventTarget();
+ const context={Promise,AbortController,setTimeout,clearTimeout,performance:{now:()=>0},document:{hidden:false},backgroundWarmLifetime:warmLifetime,experiencePromise:Promise.resolve({warmBackground({signal,deadline}){assert.equal(signal.aborted,false);assert.equal(deadline,1500);assert.equal(calls.raf,2);assert.equal(calls.compile,0);return Promise.resolve(true);}}),addEventListener(){},removeEventListener(){},renderer,scene:{},camera:{},experienceLoaded:Promise.resolve(),
   museumLoading:{wait:()=>Promise.resolve(),status(){},finish:()=>Promise.resolve(true)},
   requestAnimationFrame(fn){calls.raf++;fn();}, safeExperience(fn){fn({prepareIntro(){},startIntro(){calls.start++;}});},
   updateMistInstances(){},updateBlackHoleView(){},renderMuseum(){calls.render++;},animationClock:{getDelta(){}},
@@ -150,6 +151,36 @@ async function checkReveal(compileThrows) {
  else {await result;assert.equal(calls.render,1);assert.equal(calls.start,1);assert.equal(context.resetViewBtn.disabled,false);}
  assert.equal(calls.compile,1);assert.equal(calls.raf,2,'Preparation status needs two animation frames before GPU work');
 }
+
  await checkReveal(false);await checkReveal(true);
+ // The same 1.5 second deadline includes waiting for experience and waiting for the far import.
+ assert(html.includes('const experiencePromise=import('),'Optional experience readiness must be retained for bounded preparation');
+ const flush=async()=>{for(let i=0;i<10;i++)await Promise.resolve();};
+ for(const mode of ['late-experience','late-background','pagehide','contextlost','rejected','throwing']){
+  let now=0,id=0,resolveExperience,resolveWarm;const timers=new Map(),events=new EventTarget(),canvas=new EventTarget(),counts={compile:0,warm:0,render:0,start:0,warnings:0,raf:0};
+  const experiencePromise=new Promise(resolve=>{resolveExperience=resolve;}),warmPromise=new Promise(resolve=>{resolveWarm=resolve;});
+  const lifetime=new AbortController();events.addEventListener('pagehide',()=>lifetime.abort());let warmSignal;
+  const context={Promise,AbortController,performance:{now:()=>now},document:{hidden:false},backgroundWarmLifetime:lifetime,experiencePromise,console:{warn(){counts.warnings++;}},setTimeout(fn,ms){const key=++id;timers.set(key,{at:now+ms,fn});return key;},clearTimeout:key=>timers.delete(key),addEventListener:events.addEventListener.bind(events),removeEventListener:events.removeEventListener.bind(events),renderer:{domElement:canvas,compile(){counts.compile++;}},scene:{},camera:{},museumLoading:{wait:()=>Promise.resolve(),status(){},finish:()=>Promise.resolve(true)},requestAnimationFrame(fn){counts.raf++;fn();},safeExperience(fn){fn({prepareIntro(){},startIntro(){counts.start++;}});},updateMistInstances(){},updateBlackHoleView(){},renderMuseum(){counts.render++;},animationClock:{getDelta(){}},queueNextExhibit(){},previousFrameAt:0,previousRafAt:0,qualityWindowAt:0,resetViewBtn:{disabled:true}};
+  context.window=context;vm.createContext(context);const result=vm.runInContext(reveal+'\nrevealMuseum();',context);await flush();assert.equal(counts.raf,2);assert.equal(counts.compile,0,'Downloading optional modules waits only inside the preparation mask');
+  const experience={warmBackground({signal,deadline}){counts.warm++;warmSignal=signal;assert.equal(deadline,1500);if(mode==='throwing')throw Error('Injected optional warm exception');if(mode==='rejected')return Promise.reject(Error('Injected optional warm rejection'));return warmPromise;}};
+  async function advance(ms){now+=ms;for(const [key,t]of [...timers])if(t.at<=now){timers.delete(key);t.fn();}await flush();}
+  if(mode==='late-background'){await advance(600);resolveExperience(experience);await flush();assert.equal(counts.warm,1);await advance(899);assert.equal(counts.compile,0);await advance(1);}
+  else if(mode==='pagehide'||mode==='contextlost'){await advance(200);if(mode==='pagehide')events.dispatchEvent(new Event('pagehide'));else canvas.dispatchEvent(new Event('webglcontextlost'));await flush();}
+  else if(mode==='rejected'||mode==='throwing'){resolveExperience(experience);await flush();}
+  else {await advance(1499);assert.equal(counts.compile,0);await advance(1);}
+  await result;assert.equal(counts.compile,1);assert.equal(counts.render,1);assert.equal(counts.start,1);assert.equal(timers.size,0);if(warmSignal)assert.equal(warmSignal.aborted,true,'Every admission closes before compile/intro');
+  const warmBefore=counts.warm;resolveExperience(experience);resolveWarm(true);await flush();assert.equal(counts.warm,warmBefore,'Late experience cannot begin a background after reveal');assert.equal(counts.compile,1);assert.equal(counts.warnings,mode==='rejected'||mode==='throwing'?1:0);
+ }
+ 
+ // BFCache cancels initial far admission without preventing original late optional UI creation.
+ {
+  const from=html.indexOf('const backgroundWarmLifetime='),to=html.indexOf('async function revealMuseum()',from);assert(from>=0&&to>from);
+  const optional=html.slice(from,to).replace("import('./enhancements/experience.js')",'loadExperience()');
+  const events=new EventTarget();let resolve,created=0,warmed=0;const waiting=new Promise(done=>{resolve=done;}),noop=()=>{};
+  const context={AbortController,window:events,loadExperience:()=>waiting,THREE:{},scene:{},renderer:{},camera:{},controls:{},renderMuseum:noop,isDesktopRenderer:noop,hideInfo:noop,restoreInfo:noop,loadExhibit:noop,disposeExhibit:noop,releaseSceneGPU:noop,blackHoleGroup:{},exhibitModel:null,safeExperience:noop,disableExperience:noop};
+  vm.createContext(context);vm.runInContext('let museumExperience=null;'+optional+';globalThis.readiness=experiencePromise;globalThis.admission=backgroundWarmLifetime.signal;',context);
+  for(const type of ['pagehide','pageshow']){const event=new Event(type);Object.defineProperty(event,'persisted',{value:true});events.dispatchEvent(event);}
+  resolve({createExperience(){created++;return {warmBackground(){warmed++;},ready(){},dispose(){}};}});await context.readiness;assert.equal(created,1);assert(events.museumEnhancements,'Late UI remains available after BFCache return');assert.equal(context.admission.aborted,true,'The cancelled initial far window never reopens');assert.equal(warmed,0);
+ }
  console.log('Startup guards pass: engine/model deadlines, progress reset, late disposal, first-error retention, fade-error visibility, core/optional classification, reconstruction isolation and synchronous reveal');
 })().catch(error=>{console.error(error);process.exitCode=1;});

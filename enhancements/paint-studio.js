@@ -1,4 +1,4 @@
-import {canvasPoint,boundedHistory,uvToCanvasPoint,unwrapCanvasX} from './paint-math.js';
+import {canvasPoint,boundedHistory,uvToCanvasPoint,unwrapCanvasX,shiftPaintPixels} from './paint-math.js';
 import {paintDraftKey,legacyPaintDraftKey,parsePaintDraft,stringifyPaintDraft,validatePaintPNG} from './paint-draft.js';
 import {paintStamp,paintBand,paintTemplate} from './paint-patterns.js';
 
@@ -29,9 +29,19 @@ const compositionWords={
  en:{title:'Motif composition',note:'Use the current motif, size, angle, outline and density to add motifs to your painting. Spacing is independent of wraparound repeat. Preview keeps your artwork unchanged; apply with one-step undo.',layout:'Layout',free:'Free spacing',wave:'Wave band',height:'Band height (from bottom, %)',amplitude:'Amplitude (pattern pixels)',waveNote:'Stamps follow the wave, with the stamp angle added to its direction. Existing marks are not avoided. Height is a proportion of the unwrapped pattern; amplitude uses 512×256 pattern pixels. These are not physical measurements.',waveEmpty:'Preview adds 0 motifs. The full band does not fit. Try a smaller motif or amplitude, or move the band.',mode:'Motif spacing',sparse:'Sparse',balanced:'Balanced',rich:'Rich',generate:'Generate / try another preview',cancel:'Cancel preview',apply:'Apply preview (undo available)',alt:'Flat preview of the current painting and proposed motifs',ready:'Open to generate a preview, then apply when ready.',loading:'Preparing the composition preview. Cancel it or keep editing.',prepared:'Preview adds {count} motifs; spacing and boundaries affect the actual count. Apply when ready.',empty:'Preview adds 0 motifs. Try a smaller motif or different spacing.',failed:'The preview is unavailable. Your painting and existing downloads are kept. Retry when your connection is restored. If it still fails, save your artwork JSON before refreshing.',applyFailed:'Could not apply the preview. Your painting and undo history are kept; try again.',applied:'Composition applied. Undo it in one step.'}
 };
 
+const lightWords={
+ zh:{title:'釉面巡光',angle:'相对原光位',original:'原光位',left:'左侧光',right:'右侧光',note:'移动光位，观察器形明暗与釉面高光。PNG 使用当前光位；可编辑作品与三维模型保留器形、纹样和釉光。'},
+ en:{title:'Inspect the glaze',angle:'Angle from original light',original:'Original light',left:'Left light',right:'Right light',note:'Move the light to inspect the vessel shading and glaze highlights. PNG uses the current light; editable artwork and 3D models keep the shape, pattern and glaze.'}
+};
+
 const artworkWords={
  zh:{title:'保存／打开作品',save:'保存可编辑作品',download:'下载作品 JSON',open:'打开作品 JSON',note:'作品 JSON 含器形、画稿、当前工具与釉光，不含分层和旧撤销记录。打开会替换当前绘瓷作品，请先另存；从造器进入时，不会改动上一页的造形。文件仅在本机读取，不上传。',ready:'可保存作品文件，在另一台设备继续创作。',preparing:'正在检查作品文件…',saved:'作品文件已生成，请下载保存。',imported:'作品已打开，并保存为本机草稿；可继续创作。',unsaved:'作品已打开，但本机草稿未保存。请另存作品 JSON，避免丢失。',failed:'文件未能打开，当前作品与原草稿已保留。请使用本工坊导出的有效作品 JSON（不超过 1.7 MB）；旧浏览器请改用新版系统浏览器。',cancelled:'已取消打开文件，当前作品已保留。',saveFailed:'作品文件未能生成。当前画稿已保留，请稍后重试。',changed:'作品已更新，请重新保存作品文件。'},
  en:{title:'Save / open artwork',save:'Save editable artwork',download:'Download artwork JSON',open:'Open artwork JSON',note:'Artwork JSON keeps the vessel, painting, current tools and glaze, without layers or earlier undo steps. Opening replaces this painting document; save it first. A parent shape-studio design stays unchanged. Files are read locally, with no upload.',ready:'Save an artwork file to continue on another device.',preparing:'Checking the artwork file…',saved:'Artwork file ready. Download it to keep it.',imported:'Artwork opened and saved as the local draft. Continue creating.',unsaved:'Artwork opened, but the local draft could not be saved. Download artwork JSON to keep it safe.',failed:'Could not open the file. Your current artwork and previous draft are kept. Use a valid workshop artwork JSON (up to 1.7 MB). Older browsers may need a current system browser.',cancelled:'Opening cancelled. Your current artwork is kept.',saveFailed:'Could not create the artwork file. Your painting is kept. Please retry.',changed:'Artwork changed. Save a fresh artwork file.'}
+};
+
+const alignmentWords={
+ zh:{title:'纹样对位',angle:'左右对位',note:'负值向左，正值向右。滑动仅改变立体预览，画布和作品仍保持原样；套用后更新画布，可一步撤销。转动器形可查看各面；开始落笔、导出或离开时会取消未套用预览。',apply:'套用对位（可撤销）',cancel:'取消对位预览',ready:'展开后可试移纹样，再决定是否套用。',preview:'正在预览对位，作品尚未改变。',cancelled:'对位预览已取消，作品保持原样。',applied:'对位已套用，可一步撤销。',unchanged:'纹样未变化，未增加撤销记录。',failed:'对位未能套用，原画稿已保留，请重试。'},
+ en:{title:'Align the pattern',angle:'Shift left / right',note:'Negative shifts left; positive shifts right. The slider changes only the 3D preview. Apply to update the canvas, with one-step undo. Rotate the vessel to inspect each side. Painting, exporting or leaving cancels an unapplied preview.',apply:'Apply alignment (undo available)',cancel:'Cancel alignment preview',ready:'Open to try a shift, then apply when ready.',preview:'Previewing alignment. Your artwork is unchanged.',cancelled:'Alignment preview cancelled. Your artwork is unchanged.',applied:'Alignment applied. Undo it in one step.',unchanged:'The pattern is unchanged. No undo step was added.',failed:'Could not apply alignment. Your painting is kept. Please retry.'}
 };
 
 export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSON=null,createPotteryModel=null,contextCanvas=null,releaseSceneGPU=null}) {
@@ -44,6 +54,12 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
  const compositionGroup=document.createElement('details');compositionGroup.className='paint-composition';compositionGroup.dataset.testid='paintCompositionGroup';compositionGroup.hidden=true;
  compositionGroup.innerHTML=`<summary>${compositionLabels.title}</summary><p class="innovation-note">${compositionLabels.note}</p><label class="innovation-field">${compositionLabels.layout}<select data-control="compositionLayout"><option value="free">${compositionLabels.free}</option><option value="wave">${compositionLabels.wave}</option></select></label><div data-testid="paintCompositionWaveControls" hidden><label class="innovation-field">${compositionLabels.height}<input data-control="compositionHeight" type="range" min="10" max="90" step="1" value="50"><output data-value="compositionHeight">50%</output></label><label class="innovation-field">${compositionLabels.amplitude}<input data-control="compositionAmplitude" type="range" min="0" max="64" step="1" value="24"><output data-value="compositionAmplitude">24 px</output></label><p class="innovation-note">${compositionLabels.waveNote}</p></div><label class="innovation-field">${compositionLabels.mode}<select data-control="compositionMode">${['sparse','balanced','rich'].map(mode=>`<option value="${mode}"${mode==='balanced'?' selected':''}>${compositionLabels[mode]}</option>`).join('')}</select></label><div class="innovation-actions"><button type="button" data-action="generateComposition">${compositionLabels.generate}</button><button type="button" data-action="cancelComposition" disabled>${compositionLabels.cancel}</button><button type="button" data-action="applyComposition" disabled>${compositionLabels.apply}</button></div><p class="innovation-note" data-testid="paintCompositionStatus" role="status" aria-live="polite">${compositionLabels.ready}</p><canvas data-testid="paintCompositionPreview" width="0" height="0" role="img" aria-label="${compositionLabels.alt}" hidden></canvas>`;
  root.querySelector('.paint-tool-help').after(compositionGroup);
+ const alignmentLabels=alignmentWords[language]||alignmentWords.zh,alignmentGroup=document.createElement('details');alignmentGroup.className='paint-composition';alignmentGroup.dataset.testid='paintAlignmentGroup';
+ alignmentGroup.innerHTML=`<summary>${alignmentLabels.title}</summary><p class="innovation-note">${alignmentLabels.note}</p><label class="innovation-field">${alignmentLabels.angle}<input data-control="alignment" type="range" min="-180" max="180" step="1" value="0"><output data-value="alignment">0.0°</output></label><div class="innovation-actions"><button type="button" data-action="applyAlignment" disabled>${alignmentLabels.apply}</button><button type="button" data-action="cancelAlignment" disabled>${alignmentLabels.cancel}</button></div><p class="innovation-note" data-testid="paintAlignmentStatus" role="status" aria-live="polite">${alignmentLabels.ready}</p>`;
+ root.querySelector('[data-testid="paintPreview"]').closest('.innovation-canvas-wrap').append(alignmentGroup);
+ const lightLabels=lightWords[language]||lightWords.zh,lightGroup=document.createElement('details');lightGroup.className='paint-composition';lightGroup.dataset.testid='paintLightGroup';
+ lightGroup.innerHTML=`<summary>${lightLabels.title}</summary><p class="innovation-note">${lightLabels.note}</p><label class="innovation-field">${lightLabels.angle}<input data-control="lightAngle" type="range" min="-180" max="180" step="1" value="0"><output data-value="lightAngle">0°</output></label><div class="innovation-actions">${[[0,'original'],[-55,'left'],[125,'right']].map(([degrees,label])=>`<button type="button" data-light-angle="${degrees}" aria-pressed="${degrees===0}">${lightLabels[label]}</button>`).join('')}</div>`;
+ alignmentGroup.before(lightGroup);
  container.append(root);
  const contextStatus=document.createElement('p');contextStatus.className='innovation-note';contextStatus.dataset.testid='paintContextStatus';contextStatus.hidden=true;contextStatus.setAttribute('role','status');contextStatus.setAttribute('aria-live','polite');contextStatus.textContent=language==='en'?'The 3D preview is temporarily unavailable. Your artwork remains on this page. Keep painting on the flat canvas, and save artwork JSON separately.':'三维预览暂不可用，画稿仍在当前页面。可继续平面绘制，并先另存作品 JSON。';root.querySelector('.innovation-status').before(contextStatus);
  const $=selector=>root.querySelector(selector),canvas=$('[data-testid="paintCanvas"]'),preview=$('[data-testid="paintPreview"]'),ctx=canvas.getContext('2d',{willReadFrequently:true}),status=$('.innovation-status'),undo=$('[data-action="undo"]'),redo=$('[data-action="redo"]'),draftStatus=$('.innovation-draft-status'),glaze=$('[data-action="glaze"]'),poster=$('[data-action="poster"]'),download=$('[data-action="download"]'),posterImage=$('[data-testid="paintPoster"]'),angle=$('[data-control="angle"]'),shapeNote=$('[data-testid="paintShapeNote"]'),classicButton=$('[data-action="classicShape"]');
@@ -51,7 +67,7 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
  for(const item of root.querySelectorAll('button,input,select,a'))item.style.minHeight='44px';
  for(const item of [canvas,preview]){item.style.width='100%';item.style.height='auto';item.style.display='block';item.style.touchAction='none';}
  canvas.style.aspectRatio='2 / 1';preview.style.aspectRatio='1';canvas.style.background='#faf7ed';preview.style.background='#0b1426';preview.tabIndex=0;
- let active=true,scene,camera,vase,texture,material,pedestal,geometry,pedestalGeometry,pedestalMaterial,tool='brush',stroke=null,rotation=null,renderTimer=null,glazeTimer=null,lastRender=-Infinity,renderFailed=false,contextUnavailable=false,textureDirty=true,downloadURL=null,saveToken=0;
+ let active=true,scene,camera,vase,texture,material,pedestal,geometry,pedestalGeometry,pedestalMaterial,key,viewLightAngle=0,tool='brush',stroke=null,rotation=null,renderTimer=null,glazeTimer=null,lastRender=-Infinity,renderFailed=false,contextUnavailable=false,textureDirty=true,downloadURL=null,saveToken=0;
  let draftTimer=null,restoreTimer=null,restoreImage=null,restoring=false,draftDirty=false,glazed=false,currentAngle=0;
  let shapeOwner=null,currentShapeJSON=null,shapeUnavailable=false,draftProtected=false;
  let brushFactory=null,naturalBrush=null,brushDisabled=false,inkRAF=null,inkDirty=false;
@@ -61,10 +77,17 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
  let stampSampleContext=null,stampSampleKey=null,stampSampleFailed=false,compositionJob=null;
  const compositionCanvas=$('[data-testid="paintCompositionPreview"]'),compositionStatus=$('[data-testid="paintCompositionStatus"]'),compositionGenerate=$('[data-action="generateComposition"]'),compositionCancel=$('[data-action="cancelComposition"]'),compositionApply=$('[data-action="applyComposition"]'),compositionMode=$('[data-control="compositionMode"]');
  const compositionLayout=$('[data-control="compositionLayout"]'),compositionHeight=$('[data-control="compositionHeight"]'),compositionAmplitude=$('[data-control="compositionAmplitude"]'),compositionWaveControls=$('[data-testid="paintCompositionWaveControls"]');
+ const alignment=$('[data-control="alignment"]'),alignmentOutput=$('[data-value="alignment"]'),alignmentApply=$('[data-action="applyAlignment"]'),alignmentCancel=$('[data-action="cancelAlignment"]'),alignmentStatus=$('[data-testid="paintAlignmentStatus"]');let alignmentShift=0;
+ const lightAngle=$('[data-control="lightAngle"]'),lightOutput=$('[data-value="lightAngle"]'),lightPresets=[...root.querySelectorAll('[data-light-angle]')];
  const setStatus=text=>{status.textContent=text;};
  function fillBlank(){ctx.fillStyle='#faf7ed';ctx.fillRect(0,0,512,256);textureDirty=true;}
- function invalidatePoster(){saveToken++;download.hidden=true;download.removeAttribute('href');posterImage.hidden=true;posterImage.removeAttribute('src');if(downloadURL){URL.revokeObjectURL(downloadURL);downloadURL=null;}invalidateGLB();}
- function updatePosterControls(){const busy=restoring||posterJobToken!==null||contextUnavailable;poster.disabled=busy;$('[data-action="fourViews"]').disabled=busy||shapeUnavailable||renderFailed;}
+ function invalidatePoster(includeGLB=true){saveToken++;download.hidden=true;download.removeAttribute('href');posterImage.hidden=true;posterImage.removeAttribute('src');if(downloadURL){URL.revokeObjectURL(downloadURL);downloadURL=null;}if(includeGLB)invalidateGLB();}
+ function updatePosterControls(){const busy=restoring||posterJobToken!==null||contextUnavailable;poster.disabled=busy;$('[data-action="fourViews"]').disabled=busy||shapeUnavailable||renderFailed;updateAlignmentControls();updateViewLightControls();}
+ function updateViewLightControls(){const blocked=!active||suspended||restoring||renderFailed||shapeUnavailable||contextUnavailable||!key;lightAngle.disabled=blocked;for(const button of lightPresets)button.disabled=blocked;}
+ function setViewLight(degrees){
+  if(!active||suspended||restoring||renderFailed||shapeUnavailable||contextUnavailable||!key||!Number.isFinite(degrees)||degrees< -180||degrees>180||degrees===viewLightAngle)return;
+  viewLightAngle=degrees;const radians=degrees*Math.PI/180;key.position.set(-3*Math.cos(radians)+4*Math.sin(radians),4,3*Math.sin(radians)+4*Math.cos(radians));lightAngle.value=String(degrees);lightOutput.textContent=degrees+'°';for(const button of lightPresets)button.setAttribute('aria-pressed',String(Number(button.dataset.lightAngle)===degrees));invalidatePoster(false);scheduleRender();
+ }
  function updateGLBControls(){$('[data-action="exportGLB"]').disabled=restoring||shapeUnavailable||glbJob!==null;}
  function invalidateGLB(){
   glbToken++;const hadOutput=glbJob!==null||glbURL!==null,link=$('[data-action="glbDownload"]');link.hidden=true;link.removeAttribute('href');if(glbURL){URL.revokeObjectURL(glbURL);glbURL=null;}
@@ -76,6 +99,7 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
   if(job.canvas)job.canvas.width=job.canvas.height=0;job.mesh=job.geometry=job.material=job.texture=job.canvas=null;
  }
  function snapshotGLB(job){
+  cancelAlignment();
   if(material.map!==texture||!texture.isCanvasTexture||texture.image!==canvas)throw new Error('Only the current self-painted CanvasTexture can be exported');
   for(const [key,value] of Object.entries(material))if(value?.isTexture&&(key!=='map'||value!==texture))throw new Error('Additional texture slots cannot be exported');
   job.canvas=document.createElement('canvas');job.canvas.width=512;job.canvas.height=256;const draw=job.canvas.getContext('2d');if(!draw)throw new Error('Canvas 2D snapshot unavailable');draw.drawImage(canvas,0,0);
@@ -93,12 +117,27 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
   });
  }
  function updateHistory(){undo.disabled=restoring||history.size===0;redo.disabled=restoring||future.size===0;}
- function snapshot(){cancelComposition();const base=ctx.getImageData(0,0,512,256);history.push(base);future.clear();updateHistory();invalidatePoster();return base;}
+ function snapshot(){cancelAlignment();cancelComposition();const base=ctx.getImageData(0,0,512,256);history.push(base);future.clear();updateHistory();invalidatePoster();return base;}
  function validPatternPixels(pixels){return pixels?.width===512&&pixels.height===256&&pixels.data instanceof Uint8ClampedArray&&pixels.data.length===512*256*4;}
  function commitPatternPixels(pixels){
   if(!validPatternPixels(pixels))throw new Error('Invalid pattern pixels');const previous=ctx.getImageData(0,0,512,256);
   try{ctx.putImageData(pixels,0,0);}catch(error){ctx.putImageData(previous,0,0);throw error;}
-  stopGlaze();history.push(previous);future.clear();updateHistory();textureDirty=true;cancelComposition();invalidatePoster();queueDraft();scheduleRender();
+  textureDirty=true;cancelAlignment();stopGlaze();history.push(previous);future.clear();updateHistory();cancelComposition();invalidatePoster();queueDraft();scheduleRender();
+ }
+ function updateAlignmentControls(){
+  const blocked=!active||suspended||restoring||renderFailed||shapeUnavailable||contextUnavailable;alignment.disabled=blocked;alignmentApply.disabled=blocked||alignmentShift===0;alignmentCancel.disabled=restoring||alignmentShift===0;
+ }
+ function cancelAlignment(){
+  if(alignmentShift===0)return;alignmentShift=0;texture.offset.x=0;texture.updateMatrix();alignment.value='0';alignmentOutput.textContent='0.0°';alignmentStatus.textContent=alignmentLabels.cancelled;updateAlignmentControls();scheduleRender();
+ }
+ function previewAlignment(){
+  if(!active||suspended||restoring||renderFailed||shapeUnavailable||contextUnavailable)return;const degrees=Number(alignment.value);if(!Number.isFinite(degrees)||degrees< -180||degrees>180)return;
+  finishStroke();finishRotation();stopGlaze();cancelComposition();alignment.value=String(degrees);alignmentShift=Math.round(degrees*512/360);texture.offset.x=alignmentShift===0?0:-alignmentShift/512;texture.updateMatrix();alignmentOutput.textContent=(alignmentShift*360/512).toFixed(1)+'°';alignmentStatus.textContent=alignmentShift?alignmentLabels.preview:alignmentLabels.ready;updateAlignmentControls();scheduleRender();
+ }
+ function applyAlignment(){
+  if(!active||suspended||restoring||renderFailed||shapeUnavailable||contextUnavailable||stroke||surfacePointer||rotation||alignmentShift===0)return;
+  try{const previous=ctx.getImageData(0,0,512,256),shifted=shiftPaintPixels(previous.data,alignmentShift);if(!shifted.some((value,index)=>value!==previous.data[index])){cancelAlignment();alignmentStatus.textContent=alignmentLabels.unchanged;return;}commitPatternPixels(new ImageData(shifted,512,256));alignmentStatus.textContent=alignmentLabels.applied;setStatus(alignmentLabels.applied);}
+  catch(error){cancelAlignment();alignmentStatus.textContent=alignmentLabels.failed;console.warn('Pattern alignment unavailable; painting retained:',error);}
  }
  function updateCompositionControls(){
   compositionGenerate.disabled=!active||suspended||restoring||tool!=='flower';compositionMode.disabled=!active||suspended||restoring;
@@ -115,7 +154,7 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
  function currentCompositionJob(job){return compositionJob===job&&active&&!suspended&&!restoring&&tool==='flower'&&compositionGroup.open;}
  async function generateComposition(){
   if(!active||suspended||restoring||stroke||surfacePointer||rotation||tool!=='flower'||!compositionGroup.open)return;
-  cancelComposition();const job={base:null,result:null,count:0};compositionJob=job;compositionStatus.textContent=compositionLabels.loading;updateCompositionControls();
+  cancelAlignment();cancelComposition();const job={base:null,result:null,count:0};compositionJob=job;compositionStatus.textContent=compositionLabels.loading;updateCompositionControls();
   try{
    job.base=ctx.getImageData(0,0,512,256);const settings={motif:$('[data-control="motif"]').value,size:Number($('[data-control="stampSize"]').value),width:Number($('[data-control="width"]').value)*.18,density:Number($('[data-control="density"]').value),rotation:Number($('[data-control="stampAngle"]').value),mode:compositionMode.value};
    const wave=compositionLayout.value==='wave',waveSettings=wave?{...settings,height:Number(compositionHeight.value),amplitude:Number(compositionAmplitude.value)}:null;
@@ -135,6 +174,7 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
  function paintSettings(){return {tool:tool==='brush'?'brush':'flower',stamp:tool==='brush'?undefined:tool==='flower'?$('[data-control="motif"]').value:tool,stampSize:Number($('[data-control="stampSize"]').value),stampAngle:Number($('[data-control="stampAngle"]').value),stampRepeat:Number($('[data-control="stampRepeat"]').value),brushWidth:Number($('[data-control="width"]').value),density:Number($('[data-control="density"]').value),brushMirror:$('[data-control="brushMirror"]').value==='mirror',angle:currentAngle,glazed};}
  function artworkRaw(){return stringifyPaintDraft({...paintSettings(),png:canvas.toDataURL('image/png'),shapeJSON:currentShapeJSON});}
  function applyPaintSettings(draft){
+  cancelAlignment();
   cancelComposition();
   tool=['ring','disc','band'].includes(draft.stamp)?draft.stamp:draft.tool;
   $('[data-control="motif"]').value=['flower','plum','bamboo','cloud'].includes(draft.stamp)?draft.stamp:'flower';
@@ -179,6 +219,7 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
  }
  function shapeUI(key){root.dataset.shape=shapeUnavailable?'unavailable':shapeOwner?'custom':'classic';shapeNote.textContent=t[key];classicButton.hidden=!shapeOwner&&!shapeUnavailable&&!draftProtected;preview.hidden=shapeUnavailable;angle.disabled=restoring||shapeUnavailable;$('[data-action="saveArtwork"]').disabled=restoring||shapeUnavailable;updatePosterControls();updateSurfaceControls();updateGLBControls();}
  function useClassic(){
+  cancelAlignment();
   cancelComposition();
   if(shapeOwner){const next=createClassicGeometry(),previous=shapeOwner;geometry=next;vase.geometry=next;shapeOwner=null;previous.dispose();}
   currentShapeJSON=null;shapeUnavailable=false;draftProtected=false;if(material.side!==THREE.DoubleSide){material.side=THREE.DoubleSide;material.needsUpdate=true;}placeShape(false);shapeUI('shapeClassic');
@@ -272,7 +313,7 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
  }
  async function openArtwork(file){
   if(!active||suspended||restoring||artworkJob||!file)return;
-  cancelComposition();const fileStatus=$('[data-testid="paintArtworkStatus"]');
+  cancelAlignment();cancelComposition();const fileStatus=$('[data-testid="paintArtworkStatus"]');
   if(!Number.isSafeInteger(file.size)||file.size<1||file.size>1700000){fileStatus.textContent=files.failed;return;}
   finishStroke();finishRotation();stopGlaze();const job={pendingDraft:draftTimer!==null,cancelled:false,owner:null,geometry:null};
   if(draftTimer!==null)clearTimeout(draftTimer);draftTimer=null;artworkJob=job;lockRestore(true);fileStatus.textContent=files.preparing;
@@ -284,14 +325,14 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
   }
  }
  function saveArtwork(){
-  if(!active||suspended||restoring||shapeUnavailable)return;finishStroke();finishRotation();stopGlaze();
+  if(!active||suspended||restoring||shapeUnavailable)return;cancelAlignment();finishStroke();finishRotation();stopGlaze();
   try{
    const next=URL.createObjectURL(new Blob([artworkRaw()],{type:'application/json;charset=utf-8'}));invalidateArtwork();artworkURL=next;
    const link=$('[data-action="artworkDownload"]');link.href=next;link.download='qinghua-editable-artwork.json';link.hidden=false;$('[data-testid="paintArtworkStatus"]').textContent=files.saved;
   }catch(error){$('[data-testid="paintArtworkStatus"]').textContent=files.saveFailed;console.warn('Editable artwork unavailable:',error);}
  }
  function travelHistory(from,to){
-  if(restoring)return;cancelComposition();finishStroke();const frame=from.pop();
+  if(restoring)return;cancelAlignment();cancelComposition();finishStroke();const frame=from.pop();
   if(frame){to.push(ctx.getImageData(0,0,512,256));stopGlaze();ctx.putImageData(frame,0,0);textureDirty=true;invalidatePoster();queueDraft();scheduleRender();setStatus(renderFailed?t.renderError:t.painted);}
   updateHistory();
  }
@@ -309,7 +350,7 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
  }
  async function exportPNG(fourViews=false){
   if(!active||restoring||contextUnavailable||posterJobToken!==null)return;if(fourViews&&(renderFailed||shapeUnavailable)){setStatus(viewWords.unavailable);return;}
-  finishStroke();finishRotation();stopGlaze();const token=++saveToken;posterJobToken=token;updatePosterControls();let sheet=null;
+  cancelAlignment();finishStroke();finishRotation();stopGlaze();const token=++saveToken;posterJobToken=token;updatePosterControls();let sheet=null;
   try{
    if(!fourViews&&!renderFailed&&!shapeUnavailable){render();if(contextUnavailable)return;}sheet=document.createElement('canvas');sheet.width=1280;sheet.height=fourViews?1664:900;const draw=sheet.getContext('2d');if(!draw)throw new Error('Canvas 2D unavailable');
    draw.fillStyle='#0b1426';draw.fillRect(0,0,1280,sheet.height);draw.strokeStyle='#7da8eb';draw.lineWidth=2;draw.strokeRect(24,24,1232,sheet.height-48);draw.fillStyle='#eaf2ff';draw.font='bold 42px sans-serif';draw.fillText(fourViews?viewWords.title:t.posterTitle,64,95);draw.fillStyle='#a9c9ff';draw.font='22px sans-serif';draw.fillText(t.posterSub,64,137);
@@ -326,12 +367,12 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
  }
  function render(){
   renderTimer=null;if(!active||suspended||!scene||renderFailed||shapeUnavailable||contextUnavailable)return;
-  try{if(textureDirty){texture.needsUpdate=true;textureDirty=false;}renderPreview(scene,camera,preview);lastRender=performance.now();}catch(error){if(error?.code==='MUSEUM_CONTEXT_LOST'){loseContext();return;}renderFailed=true;updateSurfaceControls();updatePosterControls();setStatus(t.renderError);console.warn('Paint preview unavailable:',error);}
+  try{if(textureDirty){texture.needsUpdate=true;textureDirty=false;}renderPreview(scene,camera,preview);lastRender=performance.now();}catch(error){if(error?.code==='MUSEUM_CONTEXT_LOST'){loseContext();return;}renderFailed=true;cancelAlignment();updateSurfaceControls();updatePosterControls();setStatus(t.renderError);console.warn('Paint preview unavailable:',error);}
  }
  function scheduleRender(){if(!active||suspended||renderFailed||contextUnavailable||renderTimer!==null)return;const delay=Math.max(0,125-(performance.now()-lastRender));if(delay===0)render();else renderTimer=setTimeout(render,delay);}
  function loseContext(){
   if(!active||contextUnavailable)return;contextUnavailable=true;contextStatus.hidden=false;if(renderTimer!==null)clearTimeout(renderTimer);renderTimer=null;
-  finishStroke();finishRotation();stopGlaze();releaseSceneGPU?.(scene);updateSurfaceControls();updatePosterControls();
+  cancelAlignment();finishStroke();finishRotation();stopGlaze();releaseSceneGPU?.(scene);updateSurfaceControls();updatePosterControls();
  }
  function restoreContext(){if(!active)return;contextUnavailable=false;textureDirty=true;contextStatus.hidden=true;updateSurfaceControls();updatePosterControls();scheduleRender();}
  function drawBrush(from,to,width,density,brushMirror=false){
@@ -368,6 +409,7 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
  function scheduleInk(){inkDirty=true;if(inkRAF===null)inkRAF=requestAnimationFrame(flushInk);}
  function brushPoint(event,rect,pen=event?.pointerType==='pen'){
   if(!event)return null;
+  cancelAlignment();
   const point=canvasPoint(event,rect,512,256);if(!point)return null;
   point.pressure=pen&&Number.isFinite(event.pressure)?Math.max(0,Math.min(1,event.pressure)):.5;
   return point;
@@ -405,6 +447,7 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
  }
  function pickSurface(sample){
   const rect=preview.getBoundingClientRect();if(!(rect.width>0&&rect.height>0)||sample.clientX<rect.left||sample.clientX>rect.right||sample.clientY<rect.top||sample.clientY>rect.bottom)return null;
+  cancelAlignment();
   scene.updateMatrixWorld(true);camera.updateMatrixWorld();rayPosition.set((sample.clientX-rect.left)/rect.width*2-1,1-(sample.clientY-rect.top)/rect.height*2);raycaster.setFromCamera(rayPosition,camera);rayHits.length=0;raycaster.intersectObject(vase,false,rayHits);
   const point=uvToCanvasPoint(rayHits[0]?.uv);if(point)point.pressure=sample.pressure;return point;
  }
@@ -461,8 +504,8 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
   }catch(error){setStatus(labels.failed);console.warn('Porcelain template unavailable:',error);}
   finally{if(candidate)candidate.width=candidate.height=0;}
  }
- function suspend(){if(!active||suspended)return;cancelArtwork();suspended=true;flushOnLeave();stopGlaze();if(renderTimer!==null)clearTimeout(renderTimer);renderTimer=null;}
- function resume(){if(!active||!suspended)return;suspended=false;updateCompositionControls();updateStampSample();scheduleRender();}
+ function suspend(){if(!active||suspended)return;cancelArtwork();flushOnLeave();suspended=true;updateAlignmentControls();updateViewLightControls();stopGlaze();if(renderTimer!==null)clearTimeout(renderTimer);renderTimer=null;}
+ function resume(){if(!active||!suspended)return;suspended=false;updateAlignmentControls();updateViewLightControls();updateCompositionControls();updateStampSample();scheduleRender();}
  function finishStroke(event){
   const id=stroke?.id??surfacePointer?.id;if(id===undefined||event&&event.pointerId!==undefined&&event.pointerId!==id)return;flushSurface();
   const owner=stroke?.owner||preview;surfacePointer=null;surfaceSamples=[];
@@ -474,7 +517,7 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
  function finishRotation(event){if(!rotation||event&&event.pointerId!==undefined&&event.pointerId!==rotation.id)return;const id=rotation.id;rotation=null;try{preview.releasePointerCapture(id);}catch{}}
  function setAngle(value){if(!Number.isFinite(value)||value===currentAngle)return;finishStroke();currentAngle=value;angle.value=String(value);if(vase){vase.rotation.y=Math.PI+value*Math.PI/180;invalidatePoster();queueDraft();scheduleRender();}}
  function stopGlaze(){if(glazeTimer!==null){clearTimeout(glazeTimer);glazeTimer=null;stableGlaze();scheduleRender();}glaze.disabled=restoring;}
- function flushOnLeave(){cancelComposition();cancelArtwork();finishStroke();finishRotation();flushDraft();}
+ function flushOnLeave(){cancelAlignment();cancelComposition();cancelArtwork();finishStroke();finishRotation();flushDraft();}
  function dispose(){
   if(!active)return;flushOnLeave();active=false;lifetime.abort();
   if(restoreTimer!==null)clearTimeout(restoreTimer);restoreTimer=null;
@@ -489,7 +532,7 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
  try{
   if(!ctx)throw new Error('Canvas 2D unavailable');fillBlank();
   scene=new THREE.Scene();scene.background=new THREE.Color(0x0b1426);camera=new THREE.PerspectiveCamera(33,1,.1,30);camera.position.set(0,.4,7);camera.lookAt(0,0,0);
-  scene.add(new THREE.HemisphereLight(0xdce9ff,0x2c3553,2.1));const key=new THREE.DirectionalLight(0xffffff,2.2);key.position.set(-3,4,4);scene.add(key);const rim=new THREE.DirectionalLight(0x729fff,1.6);rim.position.set(3,1,-2);scene.add(rim);
+  scene.add(new THREE.HemisphereLight(0xdce9ff,0x2c3553,2.1));key=new THREE.DirectionalLight(0xffffff,2.2);key.position.set(-3,4,4);scene.add(key);const rim=new THREE.DirectionalLight(0x729fff,1.6);rim.position.set(3,1,-2);scene.add(rim);
   geometry=createClassicGeometry();
   texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;texture.wrapS=THREE.RepeatWrapping;texture.anisotropy=2;
   material=new THREE.MeshPhysicalMaterial({map:texture,color:0xffffff,roughness:.64,metalness:0,clearcoat:.12,clearcoatRoughness:.18,side:THREE.DoubleSide});vase=new THREE.Mesh(geometry,material);vase.name='museum-paint-vessel';vase.rotation.y=Math.PI;scene.add(vase);
@@ -499,6 +542,8 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
   listen(compositionGenerate,'click',generateComposition);listen(compositionCancel,'click',()=>cancelComposition());listen(compositionApply,'click',applyComposition);
   for(const control of [compositionLayout,compositionHeight,compositionAmplitude])listen(control,control===compositionLayout?'change':'input',()=>{if(!restoring)cancelComposition();});
   listen(compositionMode,'change',()=>cancelComposition());listen(compositionGroup,'toggle',()=>{if(!compositionGroup.open)cancelComposition();});
+  listen(alignment,'input',previewAlignment);listen(alignmentApply,'click',applyAlignment);listen(alignmentCancel,'click',cancelAlignment);listen(alignmentGroup,'toggle',()=>{if(!alignmentGroup.open)cancelAlignment();});
+  listen(lightAngle,'input',()=>setViewLight(Number(lightAngle.value)));for(const button of lightPresets)listen(button,'click',()=>setViewLight(Number(button.dataset.lightAngle)));updateViewLightControls();
   listen(classicButton,'click',()=>{if(restoring)return;finishStroke();finishRotation();stopGlaze();useClassic();invalidatePoster();queueDraft();scheduleRender();});
   listen(canvas,'pointerdown',event=>{
    if(restoring||stroke||surfacePointer||!event.isPrimary||event.button!==0)return;const point=brushPoint(event,canvas.getBoundingClientRect());if(!point)return;event.preventDefault();beginPaint(point,event,'flat');
@@ -536,8 +581,8 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
   });
   listen(window,'blur',()=>{finishStroke();finishRotation();});listen(angle,'input',()=>{if(!restoring){finishRotation();setAngle(Number(angle.value));}});
   listen(window,'pagehide',flushOnLeave);listen(document,'visibilitychange',()=>{if(document.visibilityState==='hidden')flushOnLeave();else updateStampSample();});
-  for(const control of root.querySelectorAll('[data-control="width"],[data-control="density"],[data-control="motif"],[data-control="stampSize"],[data-control="stampAngle"],[data-control="stampRepeat"],[data-control="brushMirror"]'))listen(control,'input',()=>{if(restoring)return;cancelComposition();finishStroke();updateToolControls();queueDraft();});
-  for(const button of root.querySelectorAll('[data-tool]'))listen(button,'click',()=>{if(restoring||tool===button.dataset.tool)return;cancelComposition();finishStroke();tool=button.dataset.tool;updateToolControls();for(const item of root.querySelectorAll('[data-tool]'))item.setAttribute('aria-pressed',String(item===button));queueDraft();});
+  for(const control of root.querySelectorAll('[data-control="width"],[data-control="density"],[data-control="motif"],[data-control="stampSize"],[data-control="stampAngle"],[data-control="stampRepeat"],[data-control="brushMirror"]'))listen(control,'input',()=>{if(restoring)return;cancelAlignment();cancelComposition();finishStroke();updateToolControls();queueDraft();});
+  for(const button of root.querySelectorAll('[data-tool]'))listen(button,'click',()=>{if(restoring||tool===button.dataset.tool)return;cancelAlignment();cancelComposition();finishStroke();tool=button.dataset.tool;updateToolControls();for(const item of root.querySelectorAll('[data-tool]'))item.setAttribute('aria-pressed',String(item===button));queueDraft();});
   for(const button of root.querySelectorAll('[data-template]')){
    const swatch=button.querySelector('canvas');try{const draw=swatch.getContext('2d');if(draw){draw.scale(144/512,72/256);paintTemplate(draw,button.dataset.template);}}catch(error){swatch.hidden=true;console.warn('Pattern preview unavailable:',error);}
    listen(button,'click',()=>{if(restoring)return;templateName=button.dataset.template;for(const item of root.querySelectorAll('[data-template]'))item.setAttribute('aria-pressed',String(item===button));});
@@ -556,7 +601,7 @@ export function mountPaint(container,{language='zh',THREE,renderPreview,shapeJSO
    if(tool!=='brush'&&(event.key==='Enter'||event.key===' ')){event.preventDefault();finishStroke();stopGlaze();snapshot();stamp({x:256,y:128});queueDraft();scheduleRender();setStatus(renderFailed?t.renderError:t.painted);}
   });
   listen(glaze,'click',()=>{
-   if(restoring)return;cancelComposition();finishStroke();stopGlaze();invalidatePoster();glaze.disabled=true;const start=performance.now(),reduced=window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+   if(restoring)return;cancelAlignment();cancelComposition();finishStroke();stopGlaze();invalidatePoster();glaze.disabled=true;const start=performance.now(),reduced=window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
    const tick=()=>{if(!active)return;const progress=reduced?1:Math.min(1,(performance.now()-start)/1000),eased=progress*progress*(3-2*progress);material.roughness=.75-.53*eased;material.clearcoat=.12+.75*eased;scheduleRender();if(progress<1)glazeTimer=setTimeout(tick,125);else{glazeTimer=null;glazed=true;glaze.disabled=false;cancelComposition();queueDraft();setStatus(renderFailed?t.renderError:t.glazed);}};tick();
   });
   listen(poster,'click',()=>{void exportPNG();});

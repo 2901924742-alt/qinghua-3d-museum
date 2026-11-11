@@ -78,17 +78,22 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
  group.name='museum-gesture-hologram';group.visible=false;group.add(art);scene.add(group);
  const seeds=new Float32Array(count);for(let i=0;i<count;i++)seeds[i]=(i*.61803398875)%1;
  geometry.setAttribute('seed',new THREE.BufferAttribute(seeds,1));
- const uniforms={time:{value:0},scan:{value:-1.15},scanMode:{value:0},spread:{value:0},swirl:{value:0},charge:{value:0},pointSize:{value:4},reduced:{value:0},layoutSeed:{value:1},previousSeed:{value:1},layoutMix:{value:1},bloomMode:{value:0},fieldCenter:{value:new THREE.Vector2()},fieldSize:{value:new THREE.Vector2(1,1)},fieldParallax:{value:new THREE.Vector2()}};
+ const uniforms={time:{value:0},scan:{value:-1.15},scanMode:{value:0},spread:{value:0},swirl:{value:0},charge:{value:0},pointSize:{value:4},reduced:{value:0},layoutSeed:{value:1},previousSeed:{value:1},layoutMix:{value:1},bloomMode:{value:0},stellar:{value:0},orbitalTime:{value:0},fieldCenter:{value:new THREE.Vector2()},fieldSize:{value:new THREE.Vector2(1,1)},fieldParallax:{value:new THREE.Vector2()}};
  const common={transparent:true,depthWrite:false,depthTest:false,toneMapped:false,fog:false};
  const material=new THREE.ShaderMaterial({...common,blending:THREE.AdditiveBlending,uniforms,vertexColors:true,
-  vertexShader:`attribute float seed;uniform float time,scan,scanMode,spread,swirl,charge,pointSize,reduced,layoutSeed,previousSeed,layoutMix,bloomMode;uniform vec2 fieldCenter,fieldSize,fieldParallax;varying vec3 tint;varying float strength;
+  vertexShader:`attribute float seed;uniform float time,scan,scanMode,spread,swirl,charge,pointSize,reduced,layoutSeed,previousSeed,layoutMix,bloomMode,stellar,orbitalTime;uniform vec2 fieldCenter,fieldSize,fieldParallax;varying vec3 tint;varying float strength;
   float noise(float n){return fract(sin(n*127.1+seed*311.7)*43758.5453);}
   vec3 cloud(float patternSeed){float motion=1.0-reduced,t=time*motion,z=noise(patternSeed)*2.0-1.0,r=pow(noise(patternSeed+1.0),.3333333),phase=noise(patternSeed+2.0)*6.2831853;z+=sin(t*.47+phase)*.12*(1.0-abs(z))*motion;r*=1.0-(.06-.06*sin(t*.67+phase*1.6))*motion;float a=phase+t*(.28+seed*.18);vec3 ball=vec3(cos(a)*sqrt(max(0.0,1.0-z*z)),sin(a)*sqrt(max(0.0,1.0-z*z)),z)*r;float turn=t*.13,c=cos(turn),s=sin(turn);ball.xz=mat2(c,-s,s,c)*ball.xz;float depth=-4.0+ball.z*2.4;vec2 xy=ball.xy*fieldSize*.40+fieldCenter*(-depth*.25)+fieldParallax*ball.z*fieldSize*.12;return vec3(xy,depth);}
-  void main(){float phase=seed*6.2831853,motion=1.0-reduced;vec3 p=position*(1.0-charge*.1);vec3 flow=vec3(sin(phase+time*.87+position.y*3.2),sin(phase*1.31-time*.73+position.z*2.7),cos(phase*.79+time*.61+position.x*3.4));vec3 tangent=flow-normal*dot(flow,normal);p+=(tangent*.020+normal*flow.y*.006)*motion*(1.0-charge*.7)*(1.0-scanMode*.75);vec4 mv=modelViewMatrix*vec4(p,1.0);
+  // Standard three.js r160 TorusGeometry parameterization, distributed into three local inclined volumes.
+  vec3 stellarOrbit(float s){float k=floor(s*3.0),t=orbitalTime/200.0,a=6.2831853*(fract(s*3.0)+(6.0+k)*t),b=6.2831853*(fract(s*137.31)+(9.0+k)*t),r=.07*sqrt(fract(s*91.73+.2)),radius=.63+.14*k;
+  float x=(radius+r*cos(b))*cos(a),y=r*sin(b),z=(radius+r*cos(b))*sin(a),tilt=.25+.63*k,turn=-.52+.47*k,yy=y*cos(tilt)-z*sin(tilt);z=y*sin(tilt)+z*cos(tilt);y=yy;float xx=x*cos(turn)-y*sin(turn),precession=.08*sin(6.2831853*t);return vec3(xx*cos(precession)+z*sin(precession),x*sin(turn)+y*cos(turn),-xx*sin(precession)+z*cos(precession));}
+  void main(){float phase=seed*6.2831853,motion=1.0-reduced;vec3 p=position*(1.0-charge*.1);vec3 flow=vec3(sin(phase+time*.87+position.y*3.2),sin(phase*1.31-time*.73+position.z*2.7),cos(phase*.79+time*.61+position.x*3.4));vec3 tangent=flow-normal*dot(flow,normal);p+=(tangent*.020+normal*flow.y*.006)*motion*(1.0-charge*.7)*(1.0-scanMode*.75);
+  float star=stellar*(1.0-charge),ring=step(.4,seed),packet=0.0,filament=0.0;if(stellar>0.0){if(ring>.5){float s=min(.999999,(seed-.4)/.6),k=floor(s*3.0),t=orbitalTime/200.0,a=6.2831853*(fract(s*3.0)+(6.0+k)*t);packet=pow(.5+.5*cos(a*3.0-6.2831853*(14.0+k)*t),12.0);filament=pow(.5+.5*cos(6.2831853*(fract(s*137.31)+(9.0+k)*t)),4.0);p=mix(p,stellarOrbit(s),star);}else p=mix(p,position*(1.0-charge*.1),star);}vec4 mv=modelViewMatrix*vec4(p,1.0);
 
   float open=spread*(1.0-charge),vortexMix=swirl*(1.0-charge);if(vortexMix>0.0){float u=fract(seed*3.0),a=u*15.08+floor(seed*3.0)*2.094+time*.65*(1.0-reduced),radius=.3+.65*sqrt(noise(9.0));float depth=-4.0+sin(a)*radius*.85;
   vec2 spiral=vec2(cos(a)*radius*fieldSize.x*.43,(u-.5)*fieldSize.y*.84)+fieldCenter;vec3 vortex=vec3(spiral*(-depth*.25),depth);mv.xyz=mix(mv.xyz,vortex,vortexMix);}if(open>0.0){vec3 targetCloud=cloud(layoutSeed);if(layoutMix<1.0)targetCloud=mix(cloud(previousSeed),targetCloud,smoothstep(0.0,1.0,layoutMix));mv.xyz=mix(mv.xyz,targetCloud,open);float travel=4.0*open*(1.0-open)*motion;vec3 bend=vec3(flow.z*fieldSize.x*.055,flow.x*fieldSize.y*.055,flow.y*.65);bend.xy*=max(.4,-mv.z*.25);mv.xyz+=bend*travel;}
-  float reveal=mix(1.0-smoothstep(scan-.08,scan+.05,position.y),1.0,scanMode);float band=exp(-abs(position.y-scan)*mix(22.0,32.0,scanMode));float ink=clamp((color.b-color.r)*3.0+.15,0.0,1.0);tint=mix(vec3(.22,.48,1.0),vec3(.50,.82,1.0),ink);tint=mix(tint,mix(vec3(.10,.30,.85),vec3(.40,.76,1.0),ink),scanMode);tint=mix(tint,vec3(.82,.96,1.0),band*(.7+scanMode*.2)+charge*.14);float depthScale=clamp(4.0/max(1.6,-mv.z),.55,2.2);tint=mix(tint,vec3(.72,.9,1.0),open*clamp(depthScale-1.0,0.0,1.0)*.45);float front=mix(.12,1.0,smoothstep(-.1,.65,normalize(normalMatrix*normal).z));strength=reveal*(mix(.38,.95,ink)+band*(.8+scanMode*.5)+charge*.35)*mix(front,1.0,max(open,swirl))*mix(1.0,depthScale,open*.65)*(1.0-bloomMode*.3);gl_Position=projectionMatrix*mv;gl_PointSize=pointSize*(.72+seed*.45+band*(.3+scanMode*.3))*(1.0-open*.26)*mix(1.0,depthScale,max(open,swirl));}`,
+  float reveal=mix(1.0-smoothstep(scan-.08,scan+.05,position.y),1.0,scanMode);float band=exp(-abs(position.y-scan)*mix(22.0,32.0,scanMode));float ink=clamp((color.b-color.r)*3.0+.15,0.0,1.0);tint=mix(vec3(.22,.48,1.0),vec3(.50,.82,1.0),ink);tint=mix(tint,mix(vec3(.10,.30,.85),vec3(.40,.76,1.0),ink),scanMode);tint=mix(tint,vec3(.82,.96,1.0),band*(.7+scanMode*.2)+charge*.14);float depthScale=clamp(4.0/max(1.6,-mv.z),.55,2.2);tint=mix(tint,vec3(.72,.9,1.0),open*clamp(depthScale-1.0,0.0,1.0)*.45);float front=mix(.12,1.0,smoothstep(-.1,.65,normalize(normalMatrix*normal).z));strength=reveal*(mix(.38,.95,ink)+band*(.8+scanMode*.5)+charge*.35)*mix(front,1.0,max(open,swirl))*mix(1.0,depthScale,open*.65)*(1.0-bloomMode*.3);gl_Position=projectionMatrix*mv;gl_PointSize=pointSize*(.72+seed*.45+band*(.3+scanMode*.3))*(1.0-open*.26)*mix(1.0,depthScale,max(open,swirl));
+  if(stellar>0.0){float weight=star*(1.0-max(open,vortexMix)),depth=clamp(4.0/max(1.6,-mv.z),.7,1.4),coreFront=mix(.33,1.0,smoothstep(-.1,.65,normalize(normalMatrix*normal).z));vec3 porcelain=mix(vec3(.16,.38,.85),vec3(.48,.80,1.0),ink),light=mix(porcelain,vec3(.82,.96,1.0),packet*.72);float coreStrength=mix(.42,.95,ink)*coreFront*sqrt(depth),ringStrength=(.14+packet*1.6)*(.45+filament*.55)*depth;tint=mix(tint,mix(porcelain,light,ring),weight);strength=mix(strength,mix(coreStrength,ringStrength,ring),weight);gl_PointSize=mix(gl_PointSize,pointSize*(.72+seed*.28)*mix(.95,.72+packet*.35,ring)*sqrt(depth),weight);}}`,
   fragmentShader:`varying vec3 tint;varying float strength;void main(){float r=length(gl_PointCoord-.5)*2.0;if(r>1.0)discard;float core=exp(-r*r*10.0),glow=exp(-r*r*4.8)*.25;gl_FragColor=vec4(tint,(core+glow)*strength);}`});
  const points=new THREE.Points(geometry,material);points.name='museum-gesture-vessel';points.frustumCulled=false;points.renderOrder=8;art.add(points);
  const backdropGeometry=new THREE.PlaneGeometry(2,2),backdropMaterial=new THREE.MeshBasicMaterial({...common,color:0x020812,opacity:.94});
@@ -96,13 +101,13 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
  const linePositions=[],lineTags=[];
  for(let strand=0;strand<4;strand++)for(let i=0;i<128;i++)for(const n of [i,i+1]){linePositions.push(n/128,strand,0);lineTags.push(strand);}
  const lineGeometry=new THREE.BufferGeometry();lineGeometry.setAttribute('position',new THREE.Float32BufferAttribute(linePositions,3));lineGeometry.setAttribute('kind',new THREE.Float32BufferAttribute(lineTags,1));
- const lineUniforms={time:uniforms.time,scan:uniforms.scan,scanMode:uniforms.scanMode,spread:uniforms.spread,charge:uniforms.charge,swirl:uniforms.swirl,fieldCenter:uniforms.fieldCenter,fieldSize:uniforms.fieldSize,release:{value:-1},reduced:uniforms.reduced};
+ const lineUniforms={time:uniforms.time,scan:uniforms.scan,scanMode:uniforms.scanMode,spread:uniforms.spread,charge:uniforms.charge,swirl:uniforms.swirl,stellar:uniforms.stellar,fieldCenter:uniforms.fieldCenter,fieldSize:uniforms.fieldSize,release:{value:-1},reduced:uniforms.reduced};
  const lineMaterial=new THREE.ShaderMaterial({...common,blending:THREE.AdditiveBlending,uniforms:lineUniforms,
-  vertexShader:`attribute float kind;uniform float time,scan,scanMode,spread,charge,release,reduced,swirl;uniform vec2 fieldCenter,fieldSize;varying float alpha;varying vec3 tint;void main(){float angle=position.x*6.2831853;vec3 p;alpha=.0;tint=vec3(.18,.48,1.0);
+  vertexShader:`attribute float kind;uniform float time,scan,scanMode,spread,charge,release,reduced,swirl,stellar;uniform vec2 fieldCenter,fieldSize;varying float alpha;varying vec3 tint;void main(){float angle=position.x*6.2831853;vec3 p;alpha=.0;tint=vec3(.18,.48,1.0);
   if(scanMode>.5){p=position;float band=exp(-abs(position.y-scan)*32.0),front=mix(.12,1.0,smoothstep(-.1,.65,normalize(normalMatrix*normal).z));alpha=(mix(.065,.035,kind)+band*.8+charge*.1)*front*(1.0-max(spread,swirl));tint=mix(vec3(.13,.42,1.0),vec3(.82,.97,1.0),band);}
   else if(kind<.5){float radius=.78;p=vec3(cos(angle)*radius,scan,sin(angle)*radius);alpha=(1.0-step(1.12,scan))*.65;tint=vec3(.6,.9,1.0);}
   else if(kind<2.5){float drift=time*.24*(1.0-reduced)*(1.0+charge*2.0);float a=angle+drift+kind*3.14;p=vec3(cos(a)*(.88+charge*.08),sin(angle*2.0+kind)*.32,sin(a)*.58);alpha=.16+charge*.24;}
-  else{float age=clamp(release,0.0,1.0),r=.4+age*1.3;p=vec3(cos(angle)*r,sin(angle)*r*.25,0.18);alpha=release>=0.0?(1.0-age)*.7:0.0;tint=vec3(.5,.82,1.0);}vec4 mv=modelViewMatrix*vec4(p,1.0);if(scanMode<.5&&kind>.5&&kind<2.5){float a=position.x*15.08+kind*2.094+time*.65*(1.0-reduced),depth=-4.0+sin(a)*.72;vec2 xy=vec2(cos(a)*fieldSize.x*.36,(position.x-.5)*fieldSize.y*.84)+fieldCenter;mv.xyz=mix(mv.xyz,vec3(xy*(-depth*.25),depth),swirl*(1.0-charge));}gl_Position=projectionMatrix*mv;}`,
+  else{float age=clamp(release,0.0,1.0),r=.4+age*1.3;p=vec3(cos(angle)*r,sin(angle)*r*.25,0.18);alpha=release>=0.0?(1.0-age)*.7:0.0;tint=vec3(.5,.82,1.0);}vec4 mv=modelViewMatrix*vec4(p,1.0);if(scanMode<.5&&kind>.5&&kind<2.5){float a=position.x*15.08+kind*2.094+time*.65*(1.0-reduced),depth=-4.0+sin(a)*.72;vec2 xy=vec2(cos(a)*fieldSize.x*.36,(position.x-.5)*fieldSize.y*.84)+fieldCenter;mv.xyz=mix(mv.xyz,vec3(xy*(-depth*.25),depth),swirl*(1.0-charge));}gl_Position=projectionMatrix*mv;if(stellar>0.0)alpha*=1.0-stellar;}`,
   fragmentShader:`varying float alpha;varying vec3 tint;void main(){gl_FragColor=vec4(tint,alpha);}`});
  lineMaterial.defaultAttributeValues.normal=[0,0,1];
  const lines=new THREE.LineSegments(lineGeometry,lineMaterial);lines.name='museum-gesture-lines';lines.renderOrder=9;lines.frustumCulled=false;art.add(lines);
@@ -153,12 +158,13 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
  }
  function nextLayout(){uniforms.previousSeed.value=uniforms.layoutSeed.value;uniforms.layoutSeed.value=(uniforms.layoutSeed.value+1.618033989)%1024;layoutAt=time;}
  function setAction(next){
-  if(disposed||!['orbit','vortex','scatter'].includes(next))return false;
+  if(disposed||!['orbit','vortex','scatter','stellar'].includes(next)||next==='stellar'&&(bloomRequested||scanRequested))return false;
   if(next==='scatter')nextLayout();if(next!==action){cancelInputs();action=next;onStatus({state,action,gesture:handPose});}return true;
  }
+ function resetStellar(){uniforms.stellar.value=uniforms.orbitalTime.value=0;if(action==='stellar')setAction('orbit');}
  async function setBloomMode(value){
   if(disposed)return false;
-  if(value){scanGeneration++;clearScan();}
+  if(value){resetStellar();scanGeneration++;clearScan();}
   bloomRequested=!!value;
   if(bloomRequested&&!bloom){
    bloomPending ||= import('./motif-bloom.js').catch(error=>{bloomPending=null;throw error;});
@@ -175,7 +181,7 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
  async function setScanMode(value){
   const token=++scanGeneration;
   if(!value||disposed){clearScan();return false;}
-  scanRequested=true;setBloomMode(false);
+  resetStellar();scanRequested=true;setBloomMode(false);
   try{
    scanPending ||= import('./surface-scan.js').catch(error=>{scanPending=null;throw error;});
    const module=await scanPending;if(disposed||!scanRequested||token!==scanGeneration)return false;
@@ -188,6 +194,8 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
  function update(delta){
   if(!enabled||disposed)return;
   const dt=Number.isFinite(delta)?Math.max(0,Math.min(.05,delta)):0,ease=1-Math.exp(-8*dt),oldX=current.x,oldY=current.y;time+=dt;
+  uniforms.stellar.value+=((action==='stellar'?1:0)-uniforms.stellar.value)*ease;if(action!=='stellar'&&uniforms.stellar.value<.001)uniforms.stellar.value=0;
+  if(!reduced?.matches&&uniforms.stellar.value>0)uniforms.orbitalTime.value=(uniforms.orbitalTime.value+dt)%200;
   current.x+=(target.x-current.x)*ease;current.y+=(target.y-current.y)*ease;current.pinch+=(target.pinch-current.pinch)*ease;
   if(current.pinch>.6)charged=true;if(charged&&target.pinch<.15){charged=false;if(time-releaseAt>.5){releaseAt=time;nextLayout();}}
   const age=time-releaseAt,release=age<1.2?age/1.2:-1,unfold=age<3.4?Math.sin(Math.min(1,age/3.4)*Math.PI):0;
@@ -234,7 +242,7 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
   if(geometry.attributes.position?.array!==sample.positions){if(geometry.attributes.position)geometry.dispose();geometry.setAttribute('position',new THREE.BufferAttribute(sample.positions,3));geometry.setAttribute('color',new THREE.BufferAttribute(sample.colors,3));geometry.setAttribute('normal',new THREE.BufferAttribute(sample.normals,3));}
   const tracking=stream?{handPose,handCandidate,handSince,missingSince,lastHand,lastHandResultAt,oneDirection}:null;
   shownModel=model;previousVisible=model.visible;model.visible=false;textureAvailable=sample.textureAvailable;time=0;layoutAt=-10;cancelInputs();target.x=current.x=.5;target.y=current.y=.5;rotation.yaw=-.24;rotation.pitch=0;art.rotation.set(0,-.24,0);
-  trailPositions.fill(0);trailUniforms.visible.value=0;uniforms.scan.value=-1.15;uniforms.spread.value=uniforms.swirl.value=0;setAction('orbit');
+  resetStellar();trailPositions.fill(0);trailUniforms.visible.value=0;uniforms.scan.value=-1.15;uniforms.spread.value=uniforms.swirl.value=0;setAction('orbit');
   if(tracking){({handPose,handCandidate,handSince,missingSince,lastHand,lastHandResultAt,oneDirection}=tracking);readyAnchor=true;notifiedPose='';status(state);}
  }
  function changeModel(){if(!enabled||disposed)return false;if(getModel()===shownModel){cancelCharge();rotationAnchor=null;}loadModel();update(0);return true;}
@@ -242,7 +250,7 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
   if(disposed)return;
   if(value&&!enabled)loadModel();
   enabled=!!value;group.visible=enabled;
-  if(!enabled){scanGeneration++;clearScan();if(shownModel){shownModel.visible=previousVisible;shownModel=null;}stopCamera();}else{update(0);if(!stream)status(textureAvailable?'ready':'shapeOnly');}
+  if(!enabled){resetStellar();scanGeneration++;clearScan();if(shownModel){shownModel.visible=previousVisible;shownModel=null;}stopCamera();}else{update(0);if(!stream)status(textureAvailable?'ready':'shapeOnly');}
  }
  function handResult(landmarks,width,height){
   const hand=classifyHand(landmarks,width,height,handPose);
@@ -267,7 +275,7 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
   hand.at=now;if(hand.gesture==='one')observeOne(hand);
   if(handCandidate!==handPose&&now-handSince>.12){
    handPose=handCandidate;
-   if(handPose==='fist'||handPose==='two')setAction('orbit');else if(handPose==='open')setAction('scatter');
+   if(handPose==='fist'||handPose==='two'&&action!=='stellar')setAction('orbit');else if(handPose==='open')setAction('scatter');
    handPose=handCandidate=hand.gesture;
    if(handPose!=='one'){oneSamples.length=0;oneStartX=null;oneDirection=0;}
   }
@@ -277,7 +285,7 @@ export function createGestureParticles({THREE,scene,camera,renderer,isDesktop,ge
    if(Math.abs(movement)>.10&&Math.abs(movement)>vertical*1.4){
     oneDirection=Math.sign(movement);anchorOne(hand);
     if(switching){metrics.blockedSwitches++;onSwitchBlocked();}
-    else if(now<=switchAfter)metrics.cooldownSwitches++;
+    else if(now<=switchAfter){metrics.cooldownSwitches++;onSwitchBlocked('cooldown');}
     else{
      switchAfter=now+.65;metrics.switches++;
      try{Promise.resolve(onSwitch(movement<0?1:-1)).catch(error=>console.warn('Gesture exhibit switch:',error));}catch(error){console.warn('Gesture exhibit switch:',error);}

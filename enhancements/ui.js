@@ -19,10 +19,10 @@ export function createUI(core) {
  document.body.append(gallery);nodes.push(gallery);
  $('museumPrevious').onclick=()=>{closeMenu();core.switchExhibit(-1);};$('museumNext').onclick=()=>{closeMenu();core.switchExhibit(1);};
  const tools=document.createElement('nav'); tools.className='museum-tools'; tools.setAttribute('aria-label','Museum tools');
- tools.innerHTML='<button id="museumLanguage" type="button"></button><button id="museumExplore" class="desktop-tool" type="button"></button><button id="museumExport" class="desktop-tool" type="button"></button><button id="museumGesture" class="desktop-tool" type="button"></button><button id="museumMore" class="mobile-more" type="button" aria-expanded="false" aria-controls="museumMenu"></button>';
+  tools.innerHTML='<button id="museumLanguage" type="button"></button><button id="museumExplore" class="desktop-tool" type="button"></button><button id="museumExport" class="desktop-tool" type="button"></button><button id="museumGesture" class="desktop-tool" type="button"></button><button id="museumStarfieldButton" class="desktop-tool" type="button"></button><button id="museumMore" class="mobile-more" type="button" aria-expanded="false" aria-controls="museumMenu"></button>';
  document.body.append(tools);nodes.push(tools);
  const menu=document.createElement('div');menu.id='museumMenu';menu.className='museum-menu';menu.hidden=true;
- menu.innerHTML='<button id="menuExplore" type="button"></button><button id="menuExport" type="button"></button><button id="menuGesture" type="button"></button>';document.body.append(menu);nodes.push(menu);
+  menu.innerHTML='<button id="menuExplore" type="button"></button><button id="menuStarfield" type="button"></button><button id="menuExport" type="button"></button><button id="menuGesture" type="button"></button>';document.body.append(menu);nodes.push(menu);
  const viewButton=document.createElement('button');viewButton.id='museumView';viewButton.type='button';document.body.append(viewButton);nodes.push(viewButton);
  const returnButton=document.createElement('button');returnButton.id='museumReturn';returnButton.type='button';returnButton.hidden=true;document.body.append(returnButton);nodes.push(returnButton);
  const dialog=document.createElement('dialog');dialog.className='museum-dialog';dialog.id='museumDialog';dialog.setAttribute('aria-labelledby','museumPanelTitle');
@@ -39,6 +39,7 @@ export function createUI(core) {
   [['museumLanguage','language'],['museumExplore','explore'],['menuExplore','explore'],['museumExport','export'],['menuExport','export'],['museumMore','more'],['museumClose','close'],['museumView','viewArtwork'],['museumReturn','returnToMuseum'],['resetViewBtn','reset'],['hideBtn','hide'],['restoreBtn','restore'],['retryBtn','retry']].forEach(([id,key])=>label(id,key));
   tools.setAttribute('aria-label',language==='zh'?'展馆工具':'Museum tools');
   ['museumGesture','menuGesture'].forEach(id=>{$(id).textContent=language==='zh'?'手势粒子':'Hand particles';});
+  ['museumStarfieldButton','menuStarfield'].forEach(id=>{$(id).textContent=language==='zh'?'星河观景':'Starfield observatory';});
   buttons.forEach((b,i)=>{b.setAttribute('aria-label',hotspots[i][language][0]);b.querySelector('span').textContent=hotspots[i][language][0];});
   updateGallery();updateLoading();if(panel&&!studioSuspension) renderPanel();
  }
@@ -127,7 +128,7 @@ export function createUI(core) {
     knowledge.innerHTML=`<p role="status">${language==='zh'?'正在打开创意工坊…':'Opening the creative workshop…'}</p>`;
     import('./innovation-studio.js').then(({mountStudio})=>{
      if(token!==studioToken||panel!=='explore'||tab!=='studio')return;
-     studio=mountStudio(knowledge,{language,exhibits,getStudioRenderer:core.getStudioRenderer,getExhibitIndex:()=>currentIndex,onViewExhibit:viewExhibit,openBloom:()=>openStudioExperience(core.openBloom),openScan:()=>openStudioExperience(core.openScan)});
+     studio=mountStudio(knowledge,{language,exhibits,getStudioRenderer:core.getStudioRenderer,getExhibitIndex:()=>currentIndex,onViewExhibit:viewExhibit,openBloom:()=>openStudioExperience(core.openBloom),openScan:()=>openStudioExperience(core.openScan),openStarfield:()=>openStudioExperience(core.openStarfield)});
     }).catch(error=>{if(token!==studioToken)return;console.warn('Museum workshop unavailable:',error);knowledge.textContent=language==='zh'?'创意工坊暂不可用，可继续观展。':'The workshop is unavailable. You can continue viewing the museum.';});
    } else if(tab==='craft') {
     knowledge.innerHTML=steps.map((step,i)=>`<article class="craft-step"><h3>${String(i+1).padStart(2,'0')} · ${step[language][0]}</h3><p>${step[language][1]}</p></article>`).join('')+`<p class="note">${t('craftNote')}</p>`+sourcesHTML();
@@ -192,7 +193,8 @@ export function createUI(core) {
  $('museumMore').onclick=()=>{if(!menu.hidden){closeMenu();return;}menu.hidden=false;$('museumMore').setAttribute('aria-expanded','true');$('menuExplore').focus({preventScroll:true});};
  ['museumExplore','menuExplore'].forEach(id=>{$(id).onclick=()=>{tab='details';open('explore');};});
  ['museumExport','menuExport'].forEach(id=>{$(id).onclick=()=>open('export');});
- ['museumGesture','menuGesture'].forEach(id=>{$(id).onclick=()=>{stopViewing();close();closeMenu();$(id==='menuGesture'?'museumMore':id).focus({preventScroll:true});core.openGesture?.();};});
+  ['museumGesture','menuGesture'].forEach(id=>{$(id).onclick=()=>{stopViewing();close();closeMenu();$(id==='menuGesture'?'museumMore':id).focus({preventScroll:true});core.openGesture?.();};});
+  ['museumStarfieldButton','menuStarfield'].forEach(id=>{$(id).onclick=()=>{stopViewing();close();closeMenu();$(id==='menuStarfield'?'museumMore':id).focus({preventScroll:true});core.openStarfield?.();};});
  $('museumClose').onclick=close;listen(dialog,'cancel',e=>{e.preventDefault();close();});
  listen(viewButton,'click',startViewing);
  listen(returnButton,'click',stopViewing);

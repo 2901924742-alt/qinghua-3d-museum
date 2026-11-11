@@ -7,11 +7,11 @@ const guard=html.slice(html.indexOf('function disableExperience('),html.indexOf(
  const THREE=await import(pathToFileURL(path.join(root,'vendor/three.module.js')).href);
  for(const cleanupThrows of [false,true]){
   const failure=Error('Injected gesture construction failure');let disposed=0,aborted=0,warnings=0;
-  const controls={enabled:true};
+  const controls={enabled:true},events=new EventTarget();
   class Lifecycle extends AbortController {abort(){aborted++;super.abort();}}
   const context={THREE,controls,AbortController:Lifecycle,console:{warn(){warnings++;}},matchMedia:()=>({matches:false}),
    createUI:()=>({dispose(){disposed++;if(cleanupThrows)throw Error('Injected UI cleanup failure');}}),
-   createGestureExperience:()=>{controls.enabled=false;throw failure;},museumExperience:null};
+   createGestureExperience:()=>{controls.enabled=false;throw failure;},museumExperience:null,addEventListener:events.addEventListener.bind(events)};
   context.window=context;vm.createContext(context);vm.runInContext(experience+'\n'+guard,context);
   assert.throws(()=>context.createExperience({THREE,controls}),error=>error===failure);
   assert.equal(disposed,1,'UI disposal must be registered before constructing later enhancements');assert.equal(aborted,1);

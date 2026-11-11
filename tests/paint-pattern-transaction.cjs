@@ -28,7 +28,7 @@ const checks=[];
    document:{createElement(){const canvas={width:0,height:0,getContext:()=>({getImageData:()=>image(77)})};return canvas;}},paintTemplate(){},
    root:{setAttribute(){},querySelectorAll:()=>[context.compositionGenerate,context.compositionCancel,context.compositionApply,context.compositionMode,context.compositionLayout,context.compositionHeight,context.compositionAmplitude]},
    canvas:{setAttribute(){}},angle:{},poster:{},posterJobToken:null,shapeUnavailable:false,updateSurfaceControls(){},updateGLBControls(){},
-   cancelArtwork(){},flushDraft(){},renderTimer:null,clearTimeout(){},updateStampSample(){},currentAngle:0,vase:{rotation:{y:0}}};
+   cancelAlignment(){},updateAlignmentControls(){},updateViewLightControls(){},cancelArtwork(){},flushDraft(){},renderTimer:null,clearTimeout(){},updateStampSample(){},currentAngle:0,vase:{rotation:{y:0}}};
   vm.createContext(context);
   for(const name of ['validPatternPixels','commitPatternPixels','updateCompositionControls','cancelComposition','currentCompositionJob','generateComposition','applyComposition','snapshot','travelHistory','applyTemplate','updatePosterControls','lockRestore','flushOnLeave','suspend','resume','setAngle']){
    let code=body(name);if(name==='generateComposition'){const specifier="import('./paint-composition.js')";assert.equal(code.split(specifier).length,2);code=code.replace(specifier,'loadComposition()');}vm.runInContext(code,context);
