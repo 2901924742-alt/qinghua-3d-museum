@@ -15,6 +15,9 @@ const modelBlock = extract('let modelLoadStopped=false, modelLoadTimer;', '/* ==
 const reveal = extract('async function revealMuseum(){', '</script>');
 assert(!/\bcompileAsync\s*\(/.test(reveal), 'Startup must not wait on asynchronous shader readiness');
 assert(/renderer\.compile\(scene,camera\)/.test(reveal), 'Synchronous shader preparation is required');
+const importMapEnd=html.indexOf('</script>',html.indexOf('<script type="importmap">'));
+const backgroundPreload=html.indexOf('<link rel="modulepreload" href="./enhancements/starfield-background.js">');
+assert(importMapEnd>=0&&backgroundPreload>importMapEnd,'Background module preload must follow the import map');
 
 function environment(withModel = false) {
  let now = 0, nextId = 0, callbacks;
@@ -135,40 +138,42 @@ for(const rejected of [false,true]) {
 }
 
 async function checkReveal(compileThrows) {
- const calls={compile:0,render:0,start:0,raf:0}, failure=new Error('Injected compile failure');
+ const calls={compile:0,render:0,start:0,raf:0,order:[]}, failure=new Error('Injected compile failure');
  const renderer={compile(){calls.compile++; if(compileThrows) throw failure;},
   get compileAsync(){assert.fail('revealMuseum must never access compileAsync');}};
  const warmLifetime=new AbortController();renderer.domElement=new EventTarget();
- const context={Promise,AbortController,setTimeout,clearTimeout,performance:{now:()=>0},document:{hidden:false},backgroundWarmLifetime:warmLifetime,experiencePromise:Promise.resolve({warmBackground({signal,deadline}){assert.equal(signal.aborted,false);assert.equal(deadline,1500);assert.equal(calls.raf,2);assert.equal(calls.compile,0);return Promise.resolve(true);}}),addEventListener(){},removeEventListener(){},renderer,scene:{},camera:{},experienceLoaded:Promise.resolve(),
+ const context={Promise,AbortController,setTimeout,clearTimeout,performance:{now:()=>0},document:{hidden:false},backgroundWarmLifetime:warmLifetime,experiencePromise:Promise.resolve({warmBackground({signal,deadline}){assert.equal(signal.aborted,false);assert.equal(deadline,8000);assert.equal(calls.raf,2);assert.equal(calls.compile,0);return Promise.resolve(true);}}),addEventListener(){},removeEventListener(){},renderer,scene:{},camera:{},experienceLoaded:Promise.resolve(),
   museumLoading:{wait:()=>Promise.resolve(),status(){},finish:()=>Promise.resolve(true)},
-  requestAnimationFrame(fn){calls.raf++;fn();}, safeExperience(fn){fn({prepareIntro(){},startIntro(){calls.start++;}});},
-  updateMistInstances(){},updateBlackHoleView(){},renderMuseum(){calls.render++;},animationClock:{getDelta(){}},
+  requestAnimationFrame(fn){calls.raf++;fn();}, safeExperience(fn){fn({prepareIntro(){calls.order.push('prepareIntro');},afterControls(){calls.order.push('afterControls');},startIntro(){calls.start++;}});},
+  updateMistInstances(){},updateBlackHoleView(){},renderMuseum(){calls.order.push('render');calls.render++;},animationClock:{getDelta(){}},
   queueNextExhibit(){},previousFrameAt:0,previousRafAt:0,qualityWindowAt:0,resetViewBtn:{disabled:true}
  };
  context.window=context;vm.createContext(context);
  const result=vm.runInContext(`${reveal}\nrevealMuseum();`,context,{timeout:1000});
  if(compileThrows) {await assert.rejects(result,error=>error===failure);assert.equal(calls.render,0);assert.equal(calls.start,0);}
- else {await result;assert.equal(calls.render,1);assert.equal(calls.start,1);assert.equal(context.resetViewBtn.disabled,false);}
+ else {await result;assert.equal(calls.render,1);assert.equal(calls.start,1);assert.equal(context.resetViewBtn.disabled,false);assert.deepEqual(calls.order,['prepareIntro','afterControls','render'],'The prepared intro camera must reach the background before the first visible render');}
  assert.equal(calls.compile,1);assert.equal(calls.raf,2,'Preparation status needs two animation frames before GPU work');
 }
 
  await checkReveal(false);await checkReveal(true);
- // The same 1.5 second deadline includes waiting for experience and waiting for the far import.
+ // One eight-second deadline covers both imports; slow success stays inside the preparation mask.
  assert(html.includes('const experiencePromise=import('),'Optional experience readiness must be retained for bounded preparation');
  const flush=async()=>{for(let i=0;i<10;i++)await Promise.resolve();};
- for(const mode of ['late-experience','late-background','pagehide','contextlost','rejected','throwing']){
-  let now=0,id=0,resolveExperience,resolveWarm;const timers=new Map(),events=new EventTarget(),canvas=new EventTarget(),counts={compile:0,warm:0,render:0,start:0,warnings:0,raf:0};
+ for(const mode of ['late-experience','late-background','ready-after-old-window','ready-near-deadline','pagehide','contextlost','rejected','throwing']){
+  let now=0,id=0,resolveExperience,resolveWarm;const timers=new Map(),events=new EventTarget(),canvas=new EventTarget(),counts={compile:0,warm:0,render:0,start:0,warnings:0,raf:0,order:[]};
   const experiencePromise=new Promise(resolve=>{resolveExperience=resolve;}),warmPromise=new Promise(resolve=>{resolveWarm=resolve;});
   const lifetime=new AbortController();events.addEventListener('pagehide',()=>lifetime.abort());let warmSignal;
-  const context={Promise,AbortController,performance:{now:()=>now},document:{hidden:false},backgroundWarmLifetime:lifetime,experiencePromise,console:{warn(){counts.warnings++;}},setTimeout(fn,ms){const key=++id;timers.set(key,{at:now+ms,fn});return key;},clearTimeout:key=>timers.delete(key),addEventListener:events.addEventListener.bind(events),removeEventListener:events.removeEventListener.bind(events),renderer:{domElement:canvas,compile(){counts.compile++;}},scene:{},camera:{},museumLoading:{wait:()=>Promise.resolve(),status(){},finish:()=>Promise.resolve(true)},requestAnimationFrame(fn){counts.raf++;fn();},safeExperience(fn){fn({prepareIntro(){},startIntro(){counts.start++;}});},updateMistInstances(){},updateBlackHoleView(){},renderMuseum(){counts.render++;},animationClock:{getDelta(){}},queueNextExhibit(){},previousFrameAt:0,previousRafAt:0,qualityWindowAt:0,resetViewBtn:{disabled:true}};
+  const context={Promise,AbortController,performance:{now:()=>now},document:{hidden:false},backgroundWarmLifetime:lifetime,experiencePromise,console:{warn(){counts.warnings++;}},setTimeout(fn,ms){const key=++id;timers.set(key,{at:now+ms,fn});return key;},clearTimeout:key=>timers.delete(key),addEventListener:events.addEventListener.bind(events),removeEventListener:events.removeEventListener.bind(events),renderer:{domElement:canvas,compile(){counts.compile++;}},scene:{},camera:{},museumLoading:{wait:()=>Promise.resolve(),status(){},finish:()=>Promise.resolve(true)},requestAnimationFrame(fn){counts.raf++;fn();},safeExperience(fn){fn({prepareIntro(){counts.order.push('prepareIntro');},afterControls(){counts.order.push('afterControls');},startIntro(){counts.start++;}});},updateMistInstances(){},updateBlackHoleView(){},renderMuseum(){counts.order.push('render');counts.render++;},animationClock:{getDelta(){}},queueNextExhibit(){},previousFrameAt:0,previousRafAt:0,qualityWindowAt:0,resetViewBtn:{disabled:true}};
   context.window=context;vm.createContext(context);const result=vm.runInContext(reveal+'\nrevealMuseum();',context);await flush();assert.equal(counts.raf,2);assert.equal(counts.compile,0,'Downloading optional modules waits only inside the preparation mask');
-  const experience={warmBackground({signal,deadline}){counts.warm++;warmSignal=signal;assert.equal(deadline,1500);if(mode==='throwing')throw Error('Injected optional warm exception');if(mode==='rejected')return Promise.reject(Error('Injected optional warm rejection'));return warmPromise;}};
+  const experience={warmBackground({signal,deadline}){counts.warm++;warmSignal=signal;assert.equal(deadline,8000);if(mode==='throwing')throw Error('Injected optional warm exception');if(mode==='rejected')return Promise.reject(Error('Injected optional warm rejection'));return warmPromise;}};
   async function advance(ms){now+=ms;for(const [key,t]of [...timers])if(t.at<=now){timers.delete(key);t.fn();}await flush();}
-  if(mode==='late-background'){await advance(600);resolveExperience(experience);await flush();assert.equal(counts.warm,1);await advance(899);assert.equal(counts.compile,0);await advance(1);}
+  if(mode==='late-background'){await advance(600);resolveExperience(experience);await flush();assert.equal(counts.warm,1);await advance(7399);assert.equal(counts.compile,0);await advance(1);}
+  else if(mode==='ready-after-old-window'){await advance(2000);assert.equal(counts.compile,0,'The old 1.5-second limit must not reveal the fallback');resolveExperience(experience);await flush();assert.equal(counts.warm,1);await advance(1500);assert.equal(counts.compile,0);resolveWarm(true);await flush();}
+  else if(mode==='ready-near-deadline'){resolveExperience(experience);await flush();assert.equal(counts.warm,1);await advance(7999);assert.equal(counts.compile,0);resolveWarm(true);await flush();}
   else if(mode==='pagehide'||mode==='contextlost'){await advance(200);if(mode==='pagehide')events.dispatchEvent(new Event('pagehide'));else canvas.dispatchEvent(new Event('webglcontextlost'));await flush();}
   else if(mode==='rejected'||mode==='throwing'){resolveExperience(experience);await flush();}
-  else {await advance(1499);assert.equal(counts.compile,0);await advance(1);}
-  await result;assert.equal(counts.compile,1);assert.equal(counts.render,1);assert.equal(counts.start,1);assert.equal(timers.size,0);if(warmSignal)assert.equal(warmSignal.aborted,true,'Every admission closes before compile/intro');
+  else {await advance(7999);assert.equal(counts.compile,0);await advance(1);}
+  await result;assert.equal(counts.compile,1);assert.equal(counts.render,1);assert.equal(counts.start,1);assert.deepEqual(counts.order,['prepareIntro','afterControls','render'],mode+' synchronizes the intro background before first render');assert.equal(timers.size,0);if(warmSignal)assert.equal(warmSignal.aborted,true,'Every admission closes before compile/intro');
   const warmBefore=counts.warm;resolveExperience(experience);resolveWarm(true);await flush();assert.equal(counts.warm,warmBefore,'Late experience cannot begin a background after reveal');assert.equal(counts.compile,1);assert.equal(counts.warnings,mode==='rejected'||mode==='throwing'?1:0);
  }
  

@@ -15,7 +15,7 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  const reduced=matchMedia('(prefers-reduced-motion: reduce)');
  const dummy=new THREE.Object3D(),tmp=new THREE.Vector3(),tmpNormal=new THREE.Vector3();
  let gesture,starfield=null,starfieldPromise=null,starfieldOpening=false,starfieldToken=0,cancelStarfieldPending=null,background=null,backgroundPromise=null,backgroundFailed=false,backgroundWarm=null,backgroundToken=0,backgroundContextLost=false,backgroundPageHidden=false;
- const travel=createViewTravel({THREE,camera,controls});let frameDelta=0,retryBackgroundAt=0;
+ const travel=createViewTravel({THREE,camera,controls});let frameDelta=0;
  const exclusiveActive=()=>starfieldOpening||!!starfield?.active||travel.active;
  cleanup.push(()=>travel.cancel());
  cleanup.push(()=>{cancelBackgroundWarm();try{background?.dispose();}finally{background=null;}});
@@ -24,7 +24,7 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
   backgroundToken++;const pending=backgroundWarm;backgroundWarm=null;pending?.cancel();
  }
  function warmBackground({signal,deadline=performance.now()+1500,allowFocus=false}={}){
-  const now=performance.now();deadline=Math.min(deadline,now+1500);
+  const now=performance.now();deadline=Math.min(deadline,now+8000);
   if(disposed||!legacyBlackHole||backgroundFailed||backgroundContextLost||backgroundPageHidden||document.hidden||signal?.aborted||!Number.isFinite(deadline)||now>=deadline||(starfieldOpening&&!allowFocus)||starfield?.active||gesture?.active)return Promise.resolve(false);
   if(background)return Promise.resolve(true);
   if(backgroundWarm)return backgroundWarm.promise;
@@ -115,10 +115,8 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
   // Only an outstanding native context loss may retry admission once the page is visible.
   if(backgroundContextLost){void restoreBackground();return;}
   if(disposed||backgroundFailed||backgroundContextLost||backgroundPageHidden||document.hidden||gesture?.active)return;
-  if(!background){
-   const now=performance.now();if(!starfieldOpening&&!backgroundWarm&&!intro?.running&&!gallery?.active&&now>=retryBackgroundAt&&document.getElementById('loading')?.style.display==='none'){retryBackgroundAt=now+2500;void warmBackground({deadline:now+1500});}
-   return;
-  }
+  // Keep a timed-out startup fallback stable; only an explicit observation request may retry.
+  if(!background)return;
   try{background.update(delta,starfield?.frameState);}catch(error){backgroundFailed=true;try{starfield?.close('error');}catch(closeError){console.warn('Museum context return:',closeError);}try{background?.dispose();}catch{}background=null;console.warn('Museum background starfield unavailable:',error);}
  }
 

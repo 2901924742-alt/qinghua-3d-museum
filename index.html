@@ -284,6 +284,7 @@ if(HTMLScriptElement.supports && !HTMLScriptElement.supports('importmap')){
 <link rel="modulepreload" href="./enhancements/interior-data.js">
 <link rel="modulepreload" href="./enhancements/exhibit-cache.js">
 <link rel="modulepreload" href="./enhancements/experience.js">
+<link rel="modulepreload" href="./enhancements/starfield-background.js">
 <link rel="modulepreload" href="./enhancements/ui.js">
 <link rel="modulepreload" href="./enhancements/exhibits.js">
 <link rel="modulepreload" href="./enhancements/gallery.js">
@@ -1328,8 +1329,8 @@ async function revealMuseum(){
     window.museumLoading.status('scenePreparing','正在准备展馆画面…');
     await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
     // One bounded admission window covers both optional imports before the intro is revealed.
-    const warmup=new AbortController(),deadline=performance.now()+1500,cancelWarmup=()=>warmup.abort();
-    const warmTimer=setTimeout(cancelWarmup,1500);
+    const warmup=new AbortController(),deadline=performance.now()+8000,cancelWarmup=()=>warmup.abort();
+    const warmTimer=setTimeout(cancelWarmup,8000);
     backgroundWarmLifetime.signal.addEventListener('abort',cancelWarmup,{once:true});
     renderer.domElement.addEventListener('webglcontextlost',cancelWarmup,{once:true});
     try{
@@ -1347,7 +1348,9 @@ async function revealMuseum(){
     // r160's asynchronous readiness polling can stall on some mobile WebGL drivers.
     renderer.compile(scene,camera);
     safeExperience(experience=>experience.prepareIntro());
-    updateMistInstances();updateBlackHoleView();renderMuseum();
+    updateMistInstances();updateBlackHoleView();
+    safeExperience(experience=>experience.afterControls());
+    renderMuseum();
     if(await window.museumLoading.finish()){
         animationClock.getDelta();previousFrameAt=previousRafAt=qualityWindowAt=0;
         safeExperience(experience=>experience.startIntro());resetViewBtn.disabled=false;queueNextExhibit();
