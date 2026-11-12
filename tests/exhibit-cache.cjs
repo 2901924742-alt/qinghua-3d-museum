@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const source = fs.readFileSync(path.resolve(__dirname, '../enhancements/exhibit-cache.js'), 'utf8')
-    .replace('export function createExhibitCache', 'function createExhibitCache');
+    .replace(/export function /g, 'function ');
 const urls = ['./qinghuaci.glb', './models/covered-vase-192.glb', './models/beaker-vase-193.glb', './models/covered-vase-191.glb'];
 const tick = () => new Promise(setImmediate), checks = [], unhandled = [];
 process.on('unhandledRejection', error => unhandled.push(error));

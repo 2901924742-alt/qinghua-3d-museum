@@ -6,6 +6,10 @@ function fixture(){
  let task,listener,disposed=0,parses=0;const warmed=[],loaded=[],model={},cache={forget(url){this.forgotten=url;},warm:url=>warmed.push(url),cancelWarm(){this.cancelled=true;},load:async url=>{loaded.push(url);return new ArrayBuffer(1);}};
  const gallery={dataset:{exhibit:'original'},getAttribute:()=> 'false'},loading={style:{display:'none'}};
  const context={DOMException,URL,console,loadingScreen:loading,navigator:{onLine:true},document:{baseURI:'https://museum.local/exhibit/',hidden:false,body:{matches:()=>false},getElementById:id=>id==='loading'?loading:gallery,addEventListener:(type,fn)=>{listener=fn;}},setTimeout:fn=>{task=fn;return 1;},clearTimeout:()=>{task=null;},createExhibitCache:({urls})=>{assert.equal(urls.length,4);return cache;},loader:{parseAsync:async(bytes,base)=>{parses++;cache.parsedBase=base;return{scene:model};}},THREE:{},addInterior:()=>({ready:Promise.resolve()}),prepareExhibit:value=>value,disposeExhibit:()=>{disposed++;}};
+ context.window=context;context.addEventListener=()=>{};
+ context.exhibitTextures={clearIdle(){this.cleared=true;},dispose(){this.disposed=true;}};
+ context.initialExhibitLease={release(){}};
+ context.createExhibitLoader=()=>({loader:context.loader,lease:{bind(){return true;},release(){}}});
  vm.createContext(context);vm.runInContext(interiorGuard+source,context);
  return {context,cache,warmed,loaded,gallery,loading,model,get disposed(){return disposed;},get parses(){return parses;},run(){assert(task);const fn=task;task=null;fn();},visibility(){listener();}};
 }
@@ -27,6 +31,8 @@ function fixture(){
  const dimensions=fixture();dimensions.context.prepareExhibit=()=>{throw Error('Invalid exhibit dimensions');};
  await assert.rejects(dimensions.context.loadExhibit('./qinghuaci.glb',{aborted:false}),/Invalid exhibit dimensions/);assert.equal(dimensions.disposed,1);
  const bad=fixture();bad.context.loader.parseAsync=async()=>{throw new Error('Invalid GLB');};await assert.rejects(bad.context.loadExhibit('./qinghuaci.glb',{aborted:false}),/Invalid GLB/);assert.equal(bad.cache.forgotten,'./qinghuaci.glb');assert.equal(bad.disposed,0);bad.run();assert.equal(bad.warmed.length,1);
+ const cancelledParse=fixture(),parseSignal={aborted:false};cancelledParse.context.loader.parseAsync=async()=>{parseSignal.aborted=true;throw new DOMException('Lease cancelled','AbortError');};
+ await assert.rejects(cancelledParse.context.loadExhibit('./qinghuaci.glb',parseSignal),{name:'AbortError'});assert.equal(cancelledParse.cache.forgotten,undefined,'Cancelling a parse must retain valid downloaded GLB bytes');assert.equal(cancelledParse.disposed,0);
  const busy=fixture();busy.context.document.body.matches=()=>true;busy.context.queueNextExhibit();busy.run();assert.equal(busy.warmed.length,0);busy.context.document.body.matches=()=>false;busy.run();assert.equal(busy.warmed.length,1);
  console.log('Exhibit loading: idle/connection/background guards, wraparound, legacy abort, real parse base URL, reconstruction isolation, dimensions and late-parser disposal pass');
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -32,7 +32,7 @@ function environment(withModel = false) {
   }
   return elements.get(id);
  };
- const metrics = {prepared:0, added:0, revealed:0, disposed:[], warnings:0, disabled:0};
+ const metrics = {prepared:0, added:0, revealed:0, disposed:[], warnings:0, disabled:0, leaseBinds:0, leaseReleases:0};
  const context = {console:{warn(){metrics.warnings++;}, error(){}}, setTimeout:timer, clearTimeout:id=>timers.delete(id),
   requestAnimationFrame:fn=>timer(()=>fn(now),16), performance:{now:()=>now},
   matchMedia:()=>({matches:false}), HTMLScriptElement:class {static supports(){return true;}},
@@ -40,6 +40,7 @@ function environment(withModel = false) {
   addEventListener(type,handler){events.set(type,handler);}, location:{reload(){}},
   disableMuseumEnhancements(){metrics.disabled++;},
   loader:{load(url,onLoad,onProgress,onError){callbacks={onLoad,onProgress,onError};}},
+  initialExhibitLease:{bind(model){metrics.leaseBinds++;new WeakMap().set(model,true);},release(){metrics.leaseReleases++;}},
   prepareExhibit(model){metrics.prepared++; return model;}, disposeExhibit(model){metrics.disposed.push(model);},
   THREE:{}, addInterior(){return {ready:Promise.resolve()};},
   scene:{add(){metrics.added++;}}, exhibitModel:null, safeExperience(){},
@@ -135,6 +136,25 @@ for(const rejected of [false,true]) {
  const e=environment(true);e.context.prepareExhibit=()=>{throw Error('Invalid exhibit dimensions');};
  await e.callbacks.onLoad({scene:{name:'invalid dimensions'}});
  assert.equal(e.context.museumLoadErrorKey,'modelSizeError');assert.equal(e.metrics.added,0);assert.equal(e.metrics.disposed.length,1);
+}
+// Malformed initial scenes and binding faults must remain a handled startup failure,
+// including a cleanup fault after the model timer has already been cleared.
+for(const shape of ['missing-gltf','missing-scene','primitive-scene','bind-throws']) {
+ for(const cleanupThrows of [false,true]) {
+  const e=environment(true),failure=Error('Injected initial texture binding failure');
+  if(shape==='bind-throws')e.context.initialExhibitLease.bind=()=>{e.metrics.leaseBinds++;throw failure;};
+  if(cleanupThrows)e.context.disposeExhibit=model=>{e.metrics.disposed.push(model);throw Error('Injected malformed cleanup failure');};
+  const value=shape==='missing-gltf'?undefined:shape==='missing-scene'?{}:shape==='primitive-scene'?{scene:7}:{scene:{name:'valid shape'}};
+  await e.callbacks.onLoad(value);e.advance(60001);
+  assert.equal(e.context.museumLoadErrorKey,'modelSizeError',shape);assert.equal(e.metrics.leaseBinds,1);assert.equal(e.metrics.leaseReleases,1);
+  assert.equal(e.metrics.prepared,0);assert.equal(e.metrics.added,0);assert.equal(e.metrics.revealed,0);assert.equal(e.element('retryBtn').hidden,false);
+  assert.equal(e.metrics.warnings,cleanupThrows?1:0);
+ }
+}
+{
+ const e=environment(true);e.context.showMuseumLoadError('Original startup failure','engineTimeout');
+ e.context.initialExhibitLease.bind=()=>{throw Error('Later bind failure');};e.context.disposeExhibit=()=>{throw Error('Later cleanup failure');};
+ await e.callbacks.onLoad({scene:3});assert.equal(e.context.museumLoadErrorKey,'engineTimeout');assert.equal(e.metrics.leaseReleases,1);assert.equal(e.element('loadingStatus').textContent,'Original startup failure');
 }
 
 async function checkReveal(compileThrows) {

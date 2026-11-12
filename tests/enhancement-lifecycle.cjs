@@ -21,7 +21,7 @@ const guard=html.slice(html.indexOf('function disableExperience('),html.indexOf(
  }
  // Dimension validation remains real even if display reconstruction throws synchronously.
  const begin=html.indexOf('const interiorPreparations = new WeakMap();'),end=html.indexOf('function disposeExhibit(',begin);
- const context={THREE,console:{warn(){}},renderer:{capabilities:{getMaxAnisotropy:()=>8}},podium:new THREE.Mesh(new THREE.CylinderGeometry(1,1,1),new THREE.MeshStandardMaterial()),addInterior(){throw Error('Injected interior geometry failure');}};
+ const context={THREE,prepareMuseumFog(){},console:{warn(){}},renderer:{capabilities:{getMaxAnisotropy:()=>8}},podium:new THREE.Mesh(new THREE.CylinderGeometry(1,1,1),new THREE.MeshStandardMaterial()),addInterior(){throw Error('Injected interior geometry failure');}};
  vm.createContext(context);vm.runInContext(html.slice(begin,end),context);
  assert.throws(()=>context.prepareExhibit(new THREE.Group()),/Invalid exhibit dimensions/);
  const model=new THREE.Group();model.add(new THREE.Mesh(new THREE.BoxGeometry(1,2,1),new THREE.MeshStandardMaterial()));

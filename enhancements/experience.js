@@ -5,7 +5,7 @@ import {createGestureExperience} from './gesture-experience.js';
 import {createViewTravel} from './view-travel.js';
 
 // Enhancements share the existing animation loop and never change the porcelain renderer settings.
-export function createExperience({THREE,scene,renderer,camera,controls,renderMuseum,isDesktop,hideInfo,restoreInfo,loadExhibit,disposeExhibit,onExhibitChange,releaseSceneGPU=null,legacyBlackHole=null,legacySky=[],resumeMuseum=null}) {
+export function createExperience({THREE,scene,renderer,camera,controls,renderMuseum,isDesktop,hideInfo,restoreInfo,loadExhibit,disposeExhibit,onExhibitChange,releaseSceneGPU=null,releaseIdleExhibitTextures=null,legacyBlackHole=null,legacySky=[],resumeMuseum=null}) {
  const lifetime=new AbortController(),cleanup=[];
  let disposed=false;
  const listen=(node,type,handler,options={})=>node.addEventListener(type,handler,{...options,signal:lifetime.signal});
@@ -84,6 +84,7 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
   }
   cancelStarfieldPending=reason=>{if(token!==starfieldToken)return;cancelReason=reason;starfieldToken++;starfieldOpening=false;cancelStarfieldPending=null;restore(reason);};
   try{
+   releaseIdleExhibitTextures?.();
    const en=ui.language==='en';pendingDialog=document.createElement('div');pendingDialog.className='museum-world-travel';pendingDialog.setAttribute('role','status');
    pendingDialog.innerHTML=`<span>${en?'Preparing the black hole…':'正在准备黑洞…'}</span><button type="button">${en?'View porcelain':'观瓷'}</button>`;
    pendingDialog.querySelector('button').addEventListener('click',()=>cancelStarfieldPending?.('return'));document.body.append(pendingDialog);pendingDialog.querySelector('button').focus({preventScroll:true});
@@ -94,6 +95,7 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
    if(!background&&!await warmBackground({deadline:performance.now()+1500,allowFocus:true}))throw new Error('The main-world black hole is unavailable');
    if(disposed||token!==starfieldToken)return false;
    cancelIntro('starfield');
+   releaseIdleExhibitTextures?.();
    parked={enabled:controls.enabled,auto:controls.autoRotate,damping:controls.enableDamping,position:camera.position.clone(),quaternion:camera.quaternion.clone(),target:controls.target.clone(),fov:camera.fov,infoHidden:document.getElementById('infoBox').classList.contains('hide'),focus:entryFocus};
    controls.autoRotate=false;controls.enableDamping=false;controls.update(0);camera.position.copy(parked.position);camera.quaternion.copy(parked.quaternion);controls.target.copy(parked.target);controls.enabled=false;hideInfo();ui.setWorldView(true);
    pendingDialog.querySelector('span').textContent=en?'Approaching the black hole…':'正在靠近黑洞…';
@@ -126,7 +128,7 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  if(renderer)listen(renderer.domElement,'webglcontextrestored',restoreBackground);
  listen(window,'pagehide',()=>{backgroundPageHidden=true;cancelBackgroundWarm();});
  listen(window,'pageshow',()=>{backgroundPageHidden=false;});
- gesture=createGestureExperience({THREE,scene,camera,renderer,controls,isDesktop,getModel:()=>model,getLanguage:()=>ui.language,cancelIntro,pauseEffects:value=>{pausedEffects=value;},getEffectsPaused:()=>pausedEffects,switchExhibit:direction=>gallery?.step(direction,{animate:false}),cancelSwitch:()=>gallery?.cancel('reset')});
+ gesture=createGestureExperience({THREE,scene,camera,renderer,controls,isDesktop,getModel:()=>model,getLanguage:()=>ui.language,cancelIntro,pauseEffects:value=>{if(value)releaseIdleExhibitTextures?.();pausedEffects=value;},getEffectsPaused:()=>pausedEffects,switchExhibit:direction=>gallery?.step(direction,{animate:false}),cancelSwitch:()=>gallery?.cancel('reset')});
  cleanup.push(()=>{if(intro){camera.position.copy(initialPosition);controls.target.copy(initialTarget);controls.update(0);}cancelIntro('dispose');});
  cleanup.push(()=>gesture.dispose());
  // Let OrbitControls receive every pointer. Activate a hotspot only after a stationary single-pointer tap.
@@ -146,6 +148,7 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  let studioPromise=null;
  async function getStudioRenderer(){
   if(disposed)throw new DOMException('Museum closed','AbortError');
+  releaseIdleExhibitTextures?.();
   if(!studioPromise)studioPromise=import('./studio-renderer.js').then(({createStudioRenderer})=>{
    if(disposed)throw new DOMException('Museum closed','AbortError');
    const studio=createStudioRenderer({THREE,renderer,loadExhibit,disposeExhibit,releaseSceneGPU,getModel:()=>model,getIndex:()=>exhibitIndex});
@@ -158,16 +161,17 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  cleanup.push(()=>gallery.dispose());
  function cancelIntro(reason='ui'){
   cancelBackgroundWarm();
+  if((reason==='background'||reason==='contextlost')&&!cancelStarfieldPending)travel.cancel();
   if(reason!=='starfield')cancelStarfieldPending?.(reason==='dispose'?'dispose':'return');
   introCancelled=true;finishIntro();if(reason!=='gallery-step')gallery?.cancel(reason);
  }
  function finishIntro(){if(!intro)return;controls.enableDamping=intro.damping;controls.autoRotate=intro.auto;if(!intro.infoHidden)restoreInfo();intro=null;document.body.classList.remove('museum-opening');}
- const interruptView=()=>{if(travel.active){if(cancelStarfieldPending)cancelStarfieldPending('interaction');else travel.cancel();}else if(!gesture.active&&!exclusiveActive())cancelIntro('interaction');};
+ const interruptView=()=>{if(!gesture.active&&!exclusiveActive())cancelIntro('interaction');};
  listen(renderer.domElement,'pointerdown',interruptView,{capture:true});listen(renderer.domElement,'wheel',interruptView,{capture:true,passive:true});
  listen(document.getElementById('resetViewBtn'),'click',()=>cancelIntro('reset'),{capture:true});
  listen(document,'visibilitychange',()=>{if(document.hidden)cancelIntro('background');});
  listen(document,'keydown',e=>{if(e.key==='Escape'){if(starfield?.active){e.preventDefault();starfield.close('return');return;}if(travel.active&&!cancelStarfieldPending){e.preventDefault();travel.cancel();return;}if(cancelStarfieldPending)e.preventDefault();cancelIntro();}});
- const onControlsStart=()=>cancelIntro('interaction');controls.addEventListener('start',onControlsStart);
+ const onControlsStart=interruptView;controls.addEventListener('start',onControlsStart);
  const onControlsEnd=()=>{if(ui.panel)controls.autoRotate=false;};controls.addEventListener('end',onControlsEnd);
  cleanup.push(()=>{controls.removeEventListener('start',onControlsStart);controls.removeEventListener('end',onControlsEnd);});
  function prepareIntro(){
@@ -264,6 +268,7 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  }
  function capture(){
   if(starfield?.frameState?.capturing)throw Object.assign(new Error('PNG capture is in progress'),{code:'MUSEUM_STARFIELD_CAPTURE_BUSY'});
+  releaseIdleExhibitTextures?.();
   updateBackground(0);
   // WebGL's default drawing buffer is captured synchronously after the complete mist composition.
   requireContext();renderMuseum();requireContext();const canvas=document.createElement('canvas');canvas.width=renderer.domElement.width;canvas.height=renderer.domElement.height;

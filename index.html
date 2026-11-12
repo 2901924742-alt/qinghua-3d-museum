@@ -295,7 +295,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { addInterior } from './enhancements/interior.js';
-import { createExhibitCache } from './enhancements/exhibit-cache.js';
+import { createExhibitCache, createExhibitTextureCache } from './enhancements/exhibit-cache.js';
 
 /* ================= 场景 ================= */
 let museumExperience = null;
@@ -316,6 +316,42 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x050505);
 // 主体与展台使用同一远景雾效，天空和黑洞独立于雾化层。
 scene.fog = new THREE.Fog(0x050505, 12, 40);
+const museumBackgroundFog = {value:false}, museumFogMaterials = new WeakSet();
+function prepareMuseumFog(material) {
+    if (museumFogMaterials.has(material)) return;
+    museumFogMaterials.add(material);
+    const previous = material.onBeforeCompile, previousKey = material.customProgramCacheKey();
+    material.onBeforeCompile = function(shader, renderer) {
+        previous.call(this, shader, renderer);
+        shader.uniforms.museumBackgroundFog = museumBackgroundFog;
+        shader.fragmentShader = shader.fragmentShader.replace('#include <fog_pars_fragment>', '#include <fog_pars_fragment>\nuniform bool museumBackgroundFog;');
+        // Coverage exposes the actual galaxy instead of painting opaque black fog over it.
+        shader.fragmentShader = shader.fragmentShader.replace('#include <clipping_planes_fragment>', `
+            #include <clipping_planes_fragment>
+            #if defined(USE_FOG) && !defined(FOG_EXP2)
+            if (museumBackgroundFog) {
+                float coverage = 1.0 - smoothstep(fogNear, fogFar, vFogDepth);
+                if (coverage <= 0.0) discard;
+                if (coverage < 1.0) {
+                    vec2 p = mod(floor(gl_FragCoord.xy), 2.0);
+                    vec2 q = mod(floor(gl_FragCoord.xy * 0.5), 2.0);
+                    float a = 2.0*p.x + 3.0*p.y - 4.0*p.x*p.y;
+                    float b = 2.0*q.x + 3.0*q.y - 4.0*q.x*q.y;
+                    if (coverage < (4.0*a + b + 0.5)/16.0) discard;
+                }
+            }
+            #endif`);
+        shader.fragmentShader = shader.fragmentShader.replace('#include <fog_fragment>', `
+            #if defined(USE_FOG) && !defined(FOG_EXP2)
+            if (!museumBackgroundFog) {
+                #include <fog_fragment>
+            }
+            #else
+                #include <fog_fragment>
+            #endif`);
+    };
+    material.customProgramCacheKey = () => previousKey + '|museum-background-coverage';
+}
 
 /* ================= 相机 ================= */
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
@@ -479,6 +515,7 @@ roughness: 0.8
 })
 );
 podium.position.y = -1.05;
+prepareMuseumFog(podium.material);
 podium.layers.enable(1);
 scene.add(podium);
 
@@ -733,9 +770,10 @@ function resizeDesktopMistTarget() {
 resizeDesktopMistTarget();
 function renderMuseum() {
     if (renderer.getContext().isContextLost()) return false;
-    const outputAutoClear=renderer.autoClear,outputBackground=scene.background;
+    const outputAutoClear=renderer.autoClear,outputBackground=scene.background,outputFog= museumBackgroundFog.value;
     const worldBackground=safeExperience(experience=>experience.renderBackground?.())===true;
-    if(worldBackground){renderer.autoClear=false;scene.background=null;renderer.clearDepth();}
+    museumBackgroundFog.value=worldBackground;
+    if(worldBackground){renderer.autoClear=false;scene.background=null;}
     try {
 
     if (!useInstancedMist || worldBackground) {
@@ -774,7 +812,7 @@ function renderMuseum() {
     renderer.render(scene, camera);
     return !renderer.getContext().isContextLost();
 
-    } finally {renderer.autoClear=outputAutoClear;scene.background=outputBackground;}
+    } finally {renderer.autoClear=outputAutoClear;scene.background=outputBackground;museumBackgroundFog.value=outputFog;}
 }
 const sortedMistClouds = [...mistClouds];
 function updateMistInstances() {
@@ -967,7 +1005,13 @@ function updateBlackHoleView() {
 
 
 /* ================= 模型 ================= */
-const loader = new GLTFLoader();
+const exhibitTextures = createExhibitTextureCache();
+function createExhibitLoader(url) {
+    const lease = exhibitTextures.lease(url), loader = new GLTFLoader();
+    loader.register(parser => lease.plugin(parser));
+    return {loader, lease};
+}
+const {loader, lease:initialExhibitLease} = createExhibitLoader('./qinghuaci.glb');
 const interiorPreparations = new WeakMap();
 function safeInterior(model, key) {
     if (interiorPreparations.has(model)) return interiorPreparations.get(model);
@@ -992,9 +1036,13 @@ function prepareExhibit(model, original = true, key = 'original') {
             if ('specularIntensity' in material) material.specularIntensity = 1;
             // 与展台使用相同的远景雾效，正常观看距离不会雾化。
             material.fog = true;
+            prepareMuseumFog(material);
             if (material.map) {
-                material.map.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
-                material.map.needsUpdate = true;
+                const anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
+                if (material.map.anisotropy !== anisotropy) {
+                    material.map.anisotropy = anisotropy;
+                    material.map.needsUpdate = true;
+                }
             }
             material.needsUpdate = true;
         });
@@ -1028,8 +1076,14 @@ function disposeExhibit(model) {
             for (const value of Object.values(material)) if (value?.isTexture) textures.add(value);
         }
     });
-    textures.forEach(texture=>{if (texture.image?.close) images.add(texture.image);texture.dispose();});
-    images.forEach(image=>image.close());materials.forEach(material=>material.dispose());geometries.forEach(geometry=>geometry.dispose());
+    try {
+        textures.forEach(texture=>{
+            if (exhibitTextures.retainsTexture(texture)) return;
+            if (texture.image?.close && !exhibitTextures.retainsImage(texture.image)) images.add(texture.image);
+            texture.dispose();
+        });
+        images.forEach(image=>image.close());materials.forEach(material=>material.dispose());geometries.forEach(geometry=>geometry.dispose());
+    } finally {exhibitTextures.releaseModel(model);}
 }
 const exhibitKeys = {'./qinghuaci.glb':'original','./models/covered-vase-192.glb':'covered-192',
     './models/beaker-vase-193.glb':'beaker-193','./models/covered-vase-191.glb':'vase-191'};
@@ -1050,43 +1104,57 @@ function queueNextExhibit(){
     },3500);
 }
 document.addEventListener('visibilitychange',()=>{
-    if(document.hidden){clearTimeout(nextExhibitTimer);exhibitCache.cancelWarm();}
+    if(document.hidden){clearTimeout(nextExhibitTimer);exhibitCache.cancelWarm();exhibitTextures.clearIdle();}
     else queueNextExhibit();
+});
+window.addEventListener('pagehide',event=>{
+    if(event.persisted)exhibitTextures.clearIdle();
+    else {initialExhibitLease.release();exhibitTextures.dispose();exhibitCache.dispose();}
 });
 const checkExhibitAbort=signal=>{if(signal.aborted)throw signal.reason||new DOMException('Exhibit preparation cancelled','AbortError');};
 async function loadExhibit(url, signal) {
     clearTimeout(nextExhibitTimer);
+    const {loader, lease} = createExhibitLoader(url), abortLease = () => lease.release();
+    let bound = false;
+    signal?.addEventListener?.('abort',abortLease,{once:true});
     try {
     const bytes = await exhibitCache.load(url,signal);
     checkExhibitAbort(signal);
-    const gltf = await loader.parseAsync(bytes, new URL('.', new URL(url, document.baseURI)).href).catch(error=>{exhibitCache.forget(url);throw error;});
+    const gltf = await loader.parseAsync(bytes, new URL('.', new URL(url, document.baseURI)).href).catch(error=>{if(!signal.aborted)exhibitCache.forget(url);throw error;});
     try {
+        bound = lease.bind(gltf.scene);
         checkExhibitAbort(signal);
         const key = exhibitKeys[url];
         await safeInterior(gltf.scene, key);
         checkExhibitAbort(signal);
         return prepareExhibit(gltf.scene, key === 'original', key);
     } catch(error) {disposeExhibit(gltf.scene);throw error;}
-    } finally {queueNextExhibit();}
+    } finally {signal?.removeEventListener?.('abort',abortLease);if(!bound)lease.release();queueNextExhibit();}
 }
 let modelLoadStopped=false, modelLoadTimer;
 function armModelTimeout(){
     clearTimeout(modelLoadTimer);
-    modelLoadTimer=setTimeout(()=>{modelLoadStopped=true;window.showMuseumLoadError('模型下载或解析长时间没有进展，请检查网络并重新加载。若在微信内，请点击右上角，在浏览器中打开。','modelTimeout');},60000);
+    modelLoadTimer=setTimeout(()=>{modelLoadStopped=true;initialExhibitLease.release();window.showMuseumLoadError('模型下载或解析长时间没有进展，请检查网络并重新加载。若在微信内，请点击右上角，在浏览器中打开。','modelTimeout');},60000);
 }
 armModelTimeout();
 loader.load("./qinghuaci.glb",async (gltf)=>{
     clearTimeout(modelLoadTimer);
-    if(modelLoadStopped || window.museumLoadErrorKey){disposeExhibit(gltf.scene);return;}
-    modelLoadStopped=true;
     let model;
     try {
+        initialExhibitLease.bind(gltf?.scene);
+        if(modelLoadStopped || window.museumLoadErrorKey){disposeExhibit(gltf?.scene);return;}
+        modelLoadStopped=true;
         await safeInterior(gltf.scene, 'original');
         if(window.museumLoadErrorKey){disposeExhibit(gltf.scene);return;}
         model = prepareExhibit(gltf.scene);
     } catch(error) {
-        disposeExhibit(gltf.scene);
-        window.showMuseumLoadError('模型尺寸无效，请检查模型文件后重试。', 'modelSizeError');return;
+        modelLoadStopped=true;
+        try {disposeExhibit(gltf?.scene);}catch(cleanupError){console.warn('Invalid initial exhibit cleanup:',cleanupError);}
+        finally {
+            try {initialExhibitLease.release();}catch(cleanupError){console.warn('Initial exhibit texture cleanup:',cleanupError);}
+            window.showMuseumLoadError('模型尺寸无效，请检查模型文件后重试。', 'modelSizeError');
+        }
+        return;
     }
     scene.add(model);
     exhibitModel = model;
@@ -1104,6 +1172,7 @@ loader.load("./qinghuaci.glb",async (gltf)=>{
     if(event.lengthComputable && event.total>0 && event.loaded>=event.total)window.museumLoading.status('modelPreparing','正在接收或解析模型数据…');
 }, (error) => {
     clearTimeout(modelLoadTimer);
+    initialExhibitLease.release();
     if(modelLoadStopped || window.museumLoadErrorKey)return;
     modelLoadStopped=true;
     console.error('瓷器模型加载失败：', error);
@@ -1179,6 +1248,7 @@ function releaseSceneGPU(root) {
 }
 // Register after startup awaits and clock initialization; Three handles earlier restoration.
 renderer.domElement.addEventListener('webglcontextlost',()=>{
+    exhibitTextures.releaseGPU();
     releaseSceneGPU(scene);releaseSceneGPU(desktopMistScene);desktopMistTarget?.dispose();mistDepthMaterial?.dispose();
 });
 renderer.domElement.addEventListener('webglcontextrestored',()=>{
@@ -1316,7 +1386,7 @@ window.addEventListener('pagehide',()=>backgroundWarmLifetime.abort(),{once:true
 const experiencePromise=import('./enhancements/experience.js').then(({createExperience}) => {
     museumExperience = createExperience({THREE, scene, renderer, camera, controls,
         renderMuseum: () => renderMuseum(), isDesktop: isDesktopRenderer, hideInfo, restoreInfo,
-        loadExhibit, disposeExhibit, releaseSceneGPU, legacyBlackHole:blackHoleGroup, legacySky:[starSphere,starDust,distantParticles,particles,...mistClouds,...(mistComposite?[mistComposite]:[])],
+        loadExhibit, disposeExhibit, releaseSceneGPU, releaseIdleExhibitTextures:()=>exhibitTextures.clearIdle(), legacyBlackHole:blackHoleGroup, legacySky:[starSphere,starDust,distantParticles,particles,...mistClouds,...(mistComposite?[mistComposite]:[])],
         resumeMuseum:()=>{resetRenderQuality();animationClock.getDelta();previousFrameAt=previousRafAt=qualityWindowAt=qualitySamples=qualityTotalMs=0;}, onExhibitChange:model=>{exhibitModel=model;queueNextExhibit();}});
     window.museumEnhancements = museumExperience;
     if (exhibitModel) safeExperience(experience=>experience.ready(exhibitModel));

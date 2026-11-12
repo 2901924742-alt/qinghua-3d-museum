@@ -15,35 +15,42 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
   place(local);
   const initial={target:{outside:true},face:2,mip:1,viewport:new THREE.Vector4(3,4,100,80),scissor:new THREE.Vector4(5,6,70,60),test:true,color:new THREE.Color(.1,.2,.3),alpha:.4,auto:true,xr:true};
   const state={...initial,viewport:initial.viewport.clone(),scissor:initial.scissor.clone(),color:initial.color.clone()};
-  const counts={frames:[],sizes:[],disposed:0,draws:[],sync:0};let borrowed,throwRender=false,lost=false;
+  const counts={frames:[],sizes:[],disposed:0,draws:[],passes:[],sync:0,depthGeometries:[],depthMaterials:[],depthGeometryDisposals:0,depthMaterialDisposals:0};let borrowed,throwRender=false,throwDepth=false,throwClear=false,lost=false,loseAfterCopy=false;
+  const runtimeTHREE={...THREE,SphereGeometry:class extends THREE.SphereGeometry{constructor(...args){super(...args);counts.depthGeometries.push(this);this.addEventListener('dispose',()=>counts.depthGeometryDisposals++);}},MeshBasicMaterial:class extends THREE.MeshBasicMaterial{constructor(...args){super(...args);counts.depthMaterials.push(this);this.addEventListener('dispose',()=>counts.depthMaterialDisposals++);}}};
   const renderer={capabilities:{maxTextureSize:8192},xr:{enabled:true},autoClear:true,
    getContext:()=>({isContextLost:()=>lost}),getRenderTarget:()=>state.target,getActiveCubeFace:()=>state.face,getActiveMipmapLevel:()=>state.mip,
    getViewport:v=>v.copy(state.viewport),getScissor:v=>v.copy(state.scissor),getScissorTest:()=>state.test,getClearColor:c=>c.copy(state.color),getClearAlpha:()=>state.alpha,
    setRenderTarget(t,f,m){state.target=t;state.face=f;state.mip=m;},setViewport:v=>state.viewport.copy(v),setScissor:v=>state.scissor.copy(v),setScissorTest:v=>state.test=v,setClearColor(c,a){state.color.copy(c);state.alpha=a;},
+   clearDepth(){counts.passes.push('clearDepth');if(throwClear)throw new Error('Injected depth clear failure');},
    render(outputScene,outputCamera){
-    assert.equal(state.target,initial.target,'Copy draws into the caller current target');assert.equal(renderer.autoClear,false);assert.equal(renderer.xr.enabled,false);
-    const material=outputScene.children[0].material;assert.equal(material.depthTest,false);assert.equal(material.depthWrite,false);assert.equal(material.toneMapped,false);assert.equal(material.blending,THREE.NoBlending);
-    assert.equal(material.uniforms.image.value,borrowed.texture);assert(material.fragmentShader.includes('gl_FragColor=texture2D(image,vUv)'),'Original encoded color is copied directly');counts.draws.push(outputCamera);
+    assert.equal(state.target,initial.target,'Both passes draw into the caller current target');assert.equal(renderer.autoClear,false);assert.equal(renderer.xr.enabled,false);
+    const mesh=outputScene.children[0],material=mesh.material,depth=mesh.geometry.type==='SphereGeometry';
+    if(depth){assert.equal(outputCamera,camera,'Finite depth uses the actual main camera');assert.equal(material.colorWrite,false);assert.equal(material.depthTest,true);assert.equal(material.depthWrite,true);assert.equal(material.side,THREE.DoubleSide);outputScene.updateMatrixWorld(true);outputCamera.updateWorldMatrix(true,false);}
+    else{assert.equal(material.depthTest,false);assert.equal(material.depthWrite,false);assert.equal(material.toneMapped,false);assert.equal(material.blending,THREE.NoBlending);assert.equal(material.uniforms.image.value,borrowed.texture);assert(material.fragmentShader.includes('gl_FragColor=texture2D(image,vUv)'),'Original encoded color is copied directly');}
+    counts.passes.push(depth?'depth':'copy');counts.draws.push({depth,mesh,camera:outputCamera});
     state.viewport.set(0,0,1,1);state.scissor.set(0,0,1,1);state.test=false;state.color.set(0);state.alpha=0;
-    if(throwRender)throw new Error('Injected copy failure');
+    if(depth&&throwDepth)throw new Error('Injected depth pass failure');if(!depth&&throwRender)throw new Error('Injected copy failure');if(!depth&&loseAfterCopy)lost=true;
    }};
-  const params={quality:'auto',checker:mobile,steps:1000,stars:3,nebula:3,temp:4200,outer:24,bright:5,exposure:1.38,bloom:.34,autoRotate:true};
-  const defaults={...params},context={THREE,createStarfieldCore:options=>{
+  const params={quality:'auto',checker:mobile,steps:1000,spin:0,stars:3,nebula:3,temp:4200,outer:24,bright:5,exposure:1.38,bloom:.34,autoRotate:true};
+  const defaults={...params},context={THREE:runtimeTHREE,createStarfieldCore:options=>{
    assert.equal(options.isMobile,mobile);if(failCore)throw new Error('Unsupported core');
    return {params,sync(){counts.sync++;},resize(w,h){counts.sizes.push([w,h]);},render(time,velocity,target,delta){if(failFrame)throw new Error('Injected first frame failure');borrowed=target;counts.frames.push({time,velocity,delta,width:target.width,height:target.height});},dispose(){counts.disposed++;if(disposeFails)throw new Error('Injected core dispose failure');}};
   }};
   vm.createContext(context);vm.runInContext(source+';globalThis.create=createStarfieldBackground;',context);
-  const create=()=>context.create({THREE,scene,renderer,camera,legacy,sky,isDesktop:()=>!mobile});
+  const create=()=>context.create({THREE:runtimeTHREE,scene,renderer,camera,legacy,sky,isDesktop:()=>!mobile});
   function verify(){assert.equal(state.target,initial.target);assert.equal(state.face,initial.face);assert.equal(state.mip,initial.mip);assert.deepEqual(state.viewport.toArray(),initial.viewport.toArray());assert.deepEqual(state.scissor.toArray(),initial.scissor.toArray());assert.equal(state.test,initial.test);assert.equal(state.color.getHex(),initial.color.getHex());assert.equal(state.alpha,initial.alpha);assert.equal(renderer.autoClear,initial.auto);assert.equal(renderer.xr.enabled,initial.xr);}
-  return {scene,legacy,sky,camera,renderer,params,defaults,counts,create,place,basis,verify,set throwRender(value){throwRender=value;},set lost(value){lost=value;},get target(){return borrowed;}};
+  return {scene,legacy,sky,camera,renderer,params,defaults,counts,create,place,basis,verify,set throwRender(value){throwRender=value;},set throwDepth(value){throwDepth=value;},set throwClear(value){throwClear=value;},set loseAfterCopy(value){loseAfterCopy=value;},set lost(value){lost=value;},get target(){return borrowed;},get horizon(){return counts.draws.find(draw=>draw.depth)?.mesh;}};
  }
  for(const mobile of [false,true]){
   const h=harness({mobile}),children=h.scene.children.slice(),api=h.create();
   assert.equal(api.core.params,h.params);assert.deepEqual(h.params,{...h.defaults,checker:true},'Only temporal interleaving changes; galaxy, palette and integration parameters remain original');assert.equal(h.counts.sync,1);
   vector(api.observer.position,new THREE.Vector3(0,1,80),'Translated, rotated and scaled world camera maps into black-hole coordinates');assert.equal(api.observer.fov,h.camera.fov);assert.deepEqual(api.observer.projectionMatrix.elements,h.camera.projectionMatrix.elements);
   assert.deepEqual([...api.size],mobile?[1977,1112]:[2048,1152]);assert.equal(h.counts.frames.length,1);assert.equal(h.legacy.visible,false);assert.equal(h.sky[0].visible,false);assert.equal(h.sky[1].visible,false);assert.deepEqual(h.scene.children,children,'No billboard is added to the museum scene');
-  api.render();h.verify();
+  api.render();h.verify();assert.deepEqual(h.counts.passes,['copy','clearDepth','depth'],'Color is preserved while only finite horizon depth precedes museum geometry');
   h.throwRender=true;assert.throws(()=>api.render(),/Injected copy failure/);h.verify();h.throwRender=false;
+  h.throwDepth=true;assert.throws(()=>api.render(),/Injected depth pass failure/);h.verify();h.throwDepth=false;
+  h.throwClear=true;assert.throws(()=>api.render(),/Injected depth clear failure/);h.verify();h.throwClear=false;
+  const beforeLoss=h.counts.draws.length;h.loseAfterCopy=true;assert.throws(()=>api.render(),error=>error.code==='MUSEUM_CONTEXT_LOST');assert.equal(h.counts.draws.length,beforeLoss+1,'Loss during copy cannot enter the depth pass');h.verify();h.loseAfterCopy=false;h.lost=false;
   h.lost=true;assert.throws(()=>api.render(),error=>error.code==='MUSEUM_CONTEXT_LOST');h.verify();h.lost=false;
   for(let i=0;i<5;i++){h.camera.position.x+=.1;api.update(.016);}assert.equal(h.counts.frames.length,6,'Every moving frame resamples; no 4Hz throttle');
   h.place(new THREE.Vector3(1,2,20));api.update(.016,{time:8,velocity:{x:.1,y:0,z:0}});
@@ -56,7 +63,29 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
   api.observer.position.set(3,2,18);api.observer.lookAt(0,0,0);api.observer.fov=52;api.observer.updateProjectionMatrix();const localPosition=api.observer.position.clone(),localRotation=api.observer.quaternion.clone();api.applyObserver();api.syncObserver();
   vector(api.observer.position,localPosition,'Observer-to-world round trip');quaternion(api.observer.quaternion,localRotation,'Observer orientation round trip');assert.equal(h.camera.fov,52);
   const cameraParent=new THREE.Group();cameraParent.position.set(4,2,1);cameraParent.rotation.y=.3;h.scene.add(cameraParent);cameraParent.attach(h.camera);api.observer.position.set(-2,4,19);api.observer.lookAt(0,0,0);const parentPosition=api.observer.position.clone(),parentRotation=api.observer.quaternion.clone();api.applyObserver();api.syncObserver();vector(api.observer.position,parentPosition,'Parented main camera round trip');quaternion(api.observer.quaternion,parentRotation,'Parented main orientation round trip');
-  let targetDisposed=0;h.target.addEventListener('dispose',()=>targetDisposed++);api.dispose();api.dispose();api.update(.1);assert.equal(api.render(),false);assert.equal(h.counts.disposed,1);assert.equal(targetDisposed,1);assert.equal(h.legacy.visible,true);assert.equal(h.sky[0].visible,true);assert.equal(h.sky[1].visible,false);
+  let targetDisposed=0,depthGeometryDisposed=0,depthMaterialDisposed=0;h.target.addEventListener('dispose',()=>targetDisposed++);h.horizon.geometry.addEventListener('dispose',()=>depthGeometryDisposed++);h.horizon.material.addEventListener('dispose',()=>depthMaterialDisposed++);api.dispose();api.dispose();api.update(.1);assert.equal(api.render(),false);assert.equal(h.counts.disposed,1);assert.equal(targetDisposed,1);assert.equal(depthGeometryDisposed,1);assert.equal(depthMaterialDisposed,1);assert.equal(h.legacy.visible,true);assert.equal(h.sky[0].visible,true);assert.equal(h.sky[1].visible,false);
+ }
+ for(const mobile of [false,true]){
+  const h=harness({mobile});h.legacy.position.set(...(mobile?[-1.8,4.5,-26]:[-7.5,3.2,-26]));h.legacy.scale.setScalar(mobile?.55:1);h.place(new THREE.Vector3(0,0,8));
+  const children=h.scene.children.slice(),api=h.create();api.render();const horizon=h.horizon,world=h.basis.clone(),center=new THREE.Vector3().setFromMatrixPosition(world),worldScale=new THREE.Vector3().setFromMatrixScale(world).x;
+  vector(horizon.getWorldPosition(new THREE.Vector3()),center,'Horizon center follows translated/rotated/scaled world basis');
+  const front=new THREE.Vector3(0,0,3).applyMatrix4(world),behind=new THREE.Vector3(0,0,-3).applyMatrix4(world),side=new THREE.Vector3(4,0,-3).applyMatrix4(world);
+  const depth=point=>point.clone().project(h.camera).z*.5+.5;
+  function hits(point){const ndc=point.clone().project(h.camera),ray=new THREE.Raycaster();ray.near=h.camera.near;ray.far=h.camera.far;ray.setFromCamera(new THREE.Vector2(ndc.x,ndc.y),h.camera);return ray.intersectObject(horizon,false);}
+  const first=hits(center)[0];assert(first,'The horizon has finite intersectable geometry');
+  close(front.clone().project(h.camera).x,behind.clone().project(h.camera).x,'Collinear foreground/background project to the same screen x');
+  close(front.clone().project(h.camera).y,behind.clone().project(h.camera).y,'Collinear foreground/background project to the same screen y');
+  assert(depth(front)<depth(first.point)&&depth(first.point)<depth(behind),'Depth keeps the nearer vessel visible and rejects the farther vessel only where the horizon intersects');
+  assert.equal(hits(side).length,0,'A vessel beside the horizon is never hidden by an infinite plane');
+  const localHit=first.point.clone().applyMatrix4(world.clone().invert()),wrongLocalDepth=localHit.project(api.observer).z*.5+.5;
+  assert(Math.abs(depth(first.point)-wrongLocalDepth)>.001,'Depth must use main-camera world units, not observer r_s units');
+  for(const spin of [0,.9,.998]){h.params.spin=spin;api.render();const radius=(1+Math.sqrt(1-spin*spin))/2;close(horizon.getWorldScale(new THREE.Vector3()).x,worldScale*radius,'Finite radius follows the core horizon formula');}
+  const cameraParent=new THREE.Group();cameraParent.position.set(4,2,1);cameraParent.rotation.set(.2,-.3,.1);h.scene.add(cameraParent);cameraParent.attach(h.camera);api.render();
+  const parentedHit=hits(center)[0];assert(parentedHit);assert(depth(front)<depth(parentedHit.point)&&depth(parentedHit.point)<depth(behind),'Parented main camera preserves finite depth order');
+  h.params.spin=0;const near=new THREE.Vector3(0,0,1.04).applyMatrix4(world);h.camera.position.copy(cameraParent.worldToLocal(near));h.camera.lookAt(center);h.camera.updateWorldMatrix(true,false);api.update(0);api.render();
+  const clippedHit=hits(center)[0];assert(clippedHit,'Double-sided horizon still writes its far surface when the near surface is clipped');assert(clippedHit.point.clone().applyMatrix4(world.clone().invert()).z<0);assert(depth(clippedHit.point)>=0&&depth(clippedHit.point)<=1);
+  const draws=h.counts.draws.length;h.params.spin=NaN;assert.throws(()=>api.render(),/event-horizon radius/);assert.equal(h.counts.draws.length,draws,'Invalid depth transforms are rejected before drawing');h.verify();h.params.spin=0;
+  assert.deepEqual(h.scene.children,[...children,cameraParent],'Private depth scene never modifies museum children');api.dispose();assert.deepEqual(h.scene.children,[...children,cameraParent]);assert.equal(h.counts.depthGeometryDisposals,1);assert.equal(h.counts.depthMaterialDisposals,1);
  }
  {
   const h=harness(),api=h.create();for(let i=0;i<45;i++)api.update(.05,{scale:.6});assert.equal(api.size[0],1228,'Auto feedback adjusts only the independent ray-trace budget');api.update(.016);assert.equal(api.size[0],2048,'No controller feedback uses the base budget');assert.deepEqual(h.params,{...h.defaults,checker:true});api.dispose();
@@ -73,9 +102,11 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
  }
  for(const options of [{failCore:true},{failFrame:true}]){
   const h=harness(options),children=h.scene.children.slice();assert.throws(h.create,/Unsupported core|Injected first frame/);assert.equal(h.legacy.visible,true);assert.equal(h.sky[0].visible,true);assert.equal(h.sky[1].visible,false);assert.deepEqual(h.scene.children,children);assert.equal(h.counts.disposed,options.failCore?0:1);
+  assert.equal(h.counts.depthGeometryDisposals,h.counts.depthGeometries.length,'Construction failure retires every allocated depth geometry');assert.equal(h.counts.depthMaterialDisposals,h.counts.depthMaterials.length,'Construction failure retires every allocated depth material');
  }
  {
-  const h=harness({disposeFails:true}),api=h.create();let released=0;h.target.addEventListener('dispose',()=>released++);assert.throws(()=>api.dispose(),/Injected core dispose/);api.dispose();assert.equal(released,1,'Other resources are released after a core disposal failure');assert.equal(h.counts.disposed,1);assert.equal(h.legacy.visible,true);
+  const h=harness({disposeFails:true}),api=h.create();let released=0;h.target.addEventListener('dispose',()=>released++);assert.throws(()=>api.dispose(),/Injected core dispose/);api.dispose();assert.equal(released,1,'Other resources are released after a core disposal failure');assert.equal(h.counts.disposed,1);assert.equal(h.counts.depthGeometryDisposals,1);assert.equal(h.counts.depthMaterialDisposals,1);assert.equal(h.legacy.visible,true);
  }
+ console.log('Finite event-horizon depth: front/behind/side, spin radius, main-camera units, parent transforms, near clipping, render failures and ownership checks pass without GPU');
  console.log('Same-scene black-hole transforms, original galaxy/color, bounded responsive sampling, capture isolation and cleanup pass');
 })().catch(error=>{console.error(error);process.exitCode=1;});
