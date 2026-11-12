@@ -3,7 +3,7 @@ export function mountStudio(container,{language,exhibits,getStudioRenderer,getEx
  const text=en?{
   title:'Porcelain, reimagined',intro:'Shape a vessel, paint its surface, then export your own 3D artwork. Or start painting directly and explore the experiences below.',
   bloom:'Motifs in bloom',bloomNote:'Original cobalt vines unfold around the holographic vessel. Open to bloom, gather to return.',bloomAction:'Enter motif space',
-  starfield:'Porcelain among the stars',starfieldNote:'Enter a full-screen black-hole observatory. Look around, pause or take an artistic plunge, then return to this same place.',starfieldAction:'Enter the observatory',
+  starfield:'Porcelain among the stars',starfieldNote:'Follow the museum camera toward the black hole. Look around, pause or take an artistic plunge, then return here to continue creating.',starfieldAction:'Enter the observatory',
   paint:'Paint your porcelain',paintNote:'Use the classic blank or your own shaped vessel. Paint on the canvas or directly on its surface, preview an artistic glaze, then export a PNG poster or original artwork GLB.',paintAction:'Start painting',
   compare:'Compare the collection',compareNote:'Compare the shapes and decoration of two exhibits, then choose “View in museum” to inspect either one.',compareAction:'Choose two vessels',
   scan:'Holographic surface scan',scanNote:'A blue-white scan reveals traces sampled from the vessel exterior. Artistic visualization, not CT or measurement.',scanAction:'Enter the scan table',
@@ -14,7 +14,7 @@ export function mountStudio(container,{language,exhibits,getStudioRenderer,getEx
  }:{
   title:'让青花从观看走向创作',intro:'塑造器形，在器壁绘制青花，再导出自己的三维作品。也可直接开始绘瓷，或自由探索下方入口。',
   bloom:'纹样活化 · 一器生花',bloomNote:'原创钴蓝缠枝绕器舒展，张掌生花、握拳归拢；也可用触控体验。',bloomAction:'进入纹样空间',
-  starfield:'青花入星河 · 星河观景',starfieldNote:'进入全屏黑洞近景，选择视角、暂停或体验艺术化坠入；返回时留在原处。',starfieldAction:'进入星河观景',
+  starfield:'青花入星河 · 星河观景',starfieldNote:'在主展馆中拉镜靠近黑洞，选择视角、暂停或体验艺术化坠入；回来后继续在原处创作。',starfieldAction:'进入星河观景',
   paint:'数字绘瓷',paintNote:'使用经典白胎或亲手塑造的器形，在画布或器壁直接落笔，预览艺术化釉光，导出 PNG 海报或原创作品 GLB。',paintAction:'开始绘瓷',
   compare:'四器对读',compareNote:'并列比较两件展品的轮廓与纹饰，点击“回展馆细看”继续观察对应展品。',compareAction:'选择两件展品',
   scan:'全息扫描台 · 器形光谱',scanNote:'蓝白扫描带掠过外壁采样，经纬光线随器形浮现。属于艺术演绎，非 CT、非实测。',scanAction:'进入全息扫描台',

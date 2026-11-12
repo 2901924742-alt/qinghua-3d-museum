@@ -321,7 +321,7 @@ const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHei
 camera.position.set(0, 0.8, 5);
 
 /* ================= 渲染器 ================= */
-// 手机保留原设置；桌面主体保持清晰，掉帧时只调整柔和雾气的离屏分辨率。
+// 高DPR画布保留原生细节并避免额外MSAA；柔和背景使用独立重建预算。
 const desktopRenderQuery = window.matchMedia('(hover: hover) and (pointer: fine)');
 function isDesktopRenderer() {
     return desktopRenderQuery.matches;
@@ -334,7 +334,7 @@ function museumPixelRatio() {
         : Math.min(nativeRatio, Math.max(1, Math.sqrt(4000000 / area)));
 }
 // 桌面已有更高的画布采样，避免再叠加整屏多重采样的显存带宽开销；手机保持原抗锯齿。
-const renderer = new THREE.WebGLRenderer({ antialias:!isDesktopRenderer(), powerPreference:isDesktopRenderer() ? 'high-performance' : 'default' });
+const renderer = new THREE.WebGLRenderer({ antialias:!isDesktopRenderer() && (window.devicePixelRatio||1)<2, powerPreference:isDesktopRenderer() ? 'high-performance' : 'default' });
 renderer.setPixelRatio(museumPixelRatio());
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -691,6 +691,7 @@ const mistDepthMaterial = useInstancedMist ? new THREE.MeshDepthMaterial({
     colorWrite: false, depthWrite: true, depthTest: true
 }) : null;
 const mistRestoreColor = new THREE.Color();
+let mistComposite=null;
 if (useInstancedMist) {
     renderer.info.autoReset = false;
     desktopMistScene.fog = scene.fog;
@@ -719,7 +720,7 @@ if (useInstancedMist) {
     }));
     composite.frustumCulled = false;
     composite.renderOrder = -3;
-    scene.add(composite);
+    scene.add(composite);mistComposite=composite;
 }
 function resizeDesktopMistTarget() {
     if (!desktopMistTarget) return;
@@ -731,7 +732,13 @@ function resizeDesktopMistTarget() {
 resizeDesktopMistTarget();
 function renderMuseum() {
     if (renderer.getContext().isContextLost()) return false;
-    if (!useInstancedMist) {
+    const outputAutoClear=renderer.autoClear,outputBackground=scene.background;
+    const worldBackground=safeExperience(experience=>experience.renderBackground?.())===true;
+    if(worldBackground){renderer.autoClear=false;scene.background=null;renderer.clearDepth();}
+    try {
+
+    if (!useInstancedMist || worldBackground) {
+        if(useInstancedMist)renderer.info.reset();
         renderer.render(scene, camera);
         return !renderer.getContext().isContextLost();
     }
@@ -765,6 +772,8 @@ function renderMuseum() {
     }
     renderer.render(scene, camera);
     return !renderer.getContext().isContextLost();
+
+    } finally {renderer.autoClear=outputAutoClear;scene.background=outputBackground;}
 }
 const sortedMistClouds = [...mistClouds];
 function updateMistInstances() {
@@ -1203,8 +1212,8 @@ function animate(timestamp = 0){
         return;
     }
     const elapsed = animationClock.elapsedTime;
-    safeExperience(experience=>experience.update(delta));
-    controls.update(delta);
+    safeExperience(experience=>experience.update(delta,rawDelta));
+    if(!museumExperience?.ownsCamera) controls.update(delta);
     safeExperience(experience=>experience.afterControls());
     particles.rotation.y += delta * 0.015;
     breathLight.intensity = 0.25 + Math.sin(Date.now()*0.0012)*0.1;
@@ -1306,7 +1315,7 @@ window.addEventListener('pagehide',()=>backgroundWarmLifetime.abort(),{once:true
 const experiencePromise=import('./enhancements/experience.js').then(({createExperience}) => {
     museumExperience = createExperience({THREE, scene, renderer, camera, controls,
         renderMuseum: () => renderMuseum(), isDesktop: isDesktopRenderer, hideInfo, restoreInfo,
-        loadExhibit, disposeExhibit, releaseSceneGPU, legacyBlackHole:blackHoleGroup,
+        loadExhibit, disposeExhibit, releaseSceneGPU, legacyBlackHole:blackHoleGroup, legacySky:[starSphere,starDust,distantParticles,particles,...mistClouds,...(mistComposite?[mistComposite]:[])],
         resumeMuseum:()=>{resetRenderQuality();animationClock.getDelta();previousFrameAt=previousRafAt=qualityWindowAt=qualitySamples=qualityTotalMs=0;}, onExhibitChange:model=>{exhibitModel=model;queueNextExhibit();}});
     window.museumEnhancements = museumExperience;
     if (exhibitModel) safeExperience(experience=>experience.ready(exhibitModel));

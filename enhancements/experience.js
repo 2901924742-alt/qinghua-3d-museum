@@ -2,9 +2,10 @@ import {createUI} from './ui.js';
 import {exhibits} from './exhibits.js';
 import {createGallery} from './gallery.js';
 import {createGestureExperience} from './gesture-experience.js';
+import {createViewTravel} from './view-travel.js';
 
 // Enhancements share the existing animation loop and never change the porcelain renderer settings.
-export function createExperience({THREE,scene,renderer,camera,controls,renderMuseum,isDesktop,hideInfo,restoreInfo,loadExhibit,disposeExhibit,onExhibitChange,releaseSceneGPU=null,legacyBlackHole=null,resumeMuseum=null}) {
+export function createExperience({THREE,scene,renderer,camera,controls,renderMuseum,isDesktop,hideInfo,restoreInfo,loadExhibit,disposeExhibit,onExhibitChange,releaseSceneGPU=null,legacyBlackHole=null,legacySky=[],resumeMuseum=null}) {
  const lifetime=new AbortController(),cleanup=[];
  let disposed=false;
  const listen=(node,type,handler,options={})=>node.addEventListener(type,handler,{...options,signal:lifetime.signal});
@@ -14,20 +15,22 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  const reduced=matchMedia('(prefers-reduced-motion: reduce)');
  const dummy=new THREE.Object3D(),tmp=new THREE.Vector3(),tmpNormal=new THREE.Vector3();
  let gesture,starfield=null,starfieldPromise=null,starfieldOpening=false,starfieldToken=0,cancelStarfieldPending=null,background=null,backgroundPromise=null,backgroundFailed=false,backgroundWarm=null,backgroundToken=0,backgroundContextLost=false,backgroundPageHidden=false;
- const exclusiveActive=()=>starfieldOpening||!!starfield?.active;
+ const travel=createViewTravel({THREE,camera,controls});let frameDelta=0,retryBackgroundAt=0;
+ const exclusiveActive=()=>starfieldOpening||!!starfield?.active||travel.active;
+ cleanup.push(()=>travel.cancel());
  cleanup.push(()=>{cancelBackgroundWarm();try{background?.dispose();}finally{background=null;}});
  cleanup.push(()=>{cancelStarfieldPending?.('dispose');starfieldToken++;starfieldOpening=false;starfield?.dispose();});
  function cancelBackgroundWarm(){
   backgroundToken++;const pending=backgroundWarm;backgroundWarm=null;pending?.cancel();
  }
- function warmBackground({signal,deadline=performance.now()+1500}={}){
+ function warmBackground({signal,deadline=performance.now()+1500,allowFocus=false}={}){
   const now=performance.now();deadline=Math.min(deadline,now+1500);
-  if(disposed||!legacyBlackHole||backgroundFailed||backgroundContextLost||backgroundPageHidden||document.hidden||signal?.aborted||!Number.isFinite(deadline)||now>=deadline||starfieldOpening||starfield?.active||gesture?.active)return Promise.resolve(false);
+  if(disposed||!legacyBlackHole||backgroundFailed||backgroundContextLost||backgroundPageHidden||document.hidden||signal?.aborted||!Number.isFinite(deadline)||now>=deadline||(starfieldOpening&&!allowFocus)||starfield?.active||gesture?.active)return Promise.resolve(false);
   if(background)return Promise.resolve(true);
   if(backgroundWarm)return backgroundWarm.promise;
   const token=++backgroundToken;let resolve,done=false,timer;
   const promise=new Promise(finish=>{resolve=finish;});
-  const cancelled=()=>disposed||token!==backgroundToken||backgroundContextLost||backgroundPageHidden||document.hidden||signal?.aborted||starfieldOpening||starfield?.active||gesture?.active;
+  const cancelled=()=>disposed||token!==backgroundToken||backgroundContextLost||backgroundPageHidden||document.hidden||signal?.aborted||(starfieldOpening&&!allowFocus)||starfield?.active||gesture?.active;
   const stale=()=>cancelled()||performance.now()>=deadline;
   function finish(value){
    if(done)return;done=true;clearTimeout(timer);signal?.removeEventListener('abort',abort);lifetime.signal.removeEventListener('abort',abort);
@@ -41,7 +44,7 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
   backgroundPromise.then(({createStarfieldBackground})=>{
    try{
     if(stale()||renderer.getContext().isContextLost()){finish(false);return;}
-    const created=createStarfieldBackground({THREE,scene,renderer,camera,legacy:legacyBlackHole,isDesktop});
+    const created=createStarfieldBackground({THREE,scene,renderer,camera,legacy:legacyBlackHole,sky:legacySky,isDesktop});
     // A synchronous constructor cannot be preempted by the deadline or an AbortSignal.
     if(cancelled()){try{created.dispose();}catch(error){console.warn('Museum background cleanup:',error);}finish(false);return;}
     background=created;finish(true);
@@ -61,43 +64,62 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
  }
  async function openStarfield(options={}){
   if(disposed||gesture?.active||gallery?.active||exclusiveActive())return false;
-  cancelBackgroundWarm();
-  const token=++starfieldToken;starfieldOpening=true;let owned=false,restore=null,pendingDialog=null;
-  const pendingEvents=new AbortController(),pendingFocus=document.activeElement;
-  const finishPending=()=>{pendingEvents.abort();if(pendingDialog){pendingDialog.close();pendingDialog.remove();pendingDialog=null;if(pendingFocus?.isConnected)pendingFocus.focus({preventScroll:true});}};
-  cancelStarfieldPending=reason=>{
-   if(token!==starfieldToken)return;
-   starfieldToken++;starfieldOpening=false;cancelStarfieldPending=null;finishPending();options.onReturn?.(reason);
-  };
-  try{
-   const en=ui.language==='en';pendingDialog=document.createElement('dialog');pendingDialog.id='museumStarfieldPending';pendingDialog.className='museum-dialog';pendingDialog.setAttribute('aria-label',en?'Preparing the observatory':'正在准备星河观景');
-   pendingDialog.style.position='fixed';pendingDialog.style.inset='0';pendingDialog.style.zIndex='59';
-   pendingDialog.innerHTML=`<section class="museum-panel"><header><h2>${en?'Preparing the observatory':'正在准备星河观景'}</h2><button type="button">${en?'Return':'返回原处'}</button></header><p role="status">${en?'You can return at any time while this view loads.':'正在准备观景画面，可随时返回。'}</p></section>`;
-   pendingDialog.querySelector('button').addEventListener('click',()=>cancelStarfieldPending?.('return'),{signal:pendingEvents.signal});pendingDialog.addEventListener('cancel',event=>{event.preventDefault();cancelStarfieldPending?.('return');},{signal:pendingEvents.signal});document.body.append(pendingDialog);pendingDialog.show();pendingDialog.querySelector('button').focus({preventScroll:true});
-   if(!starfieldPromise)starfieldPromise=import('./starfield-experience.js').catch(error=>{starfieldPromise=null;throw error;});
-   const {createStarfieldExperience}=await starfieldPromise;
-   if(disposed||token!==starfieldToken||gesture?.active||gallery?.active)return false;
-   finishPending();cancelStarfieldPending=null;cancelIntro('starfield');
-   const parked={enabled:controls.enabled,auto:controls.autoRotate,damping:controls.enableDamping,position:camera.position.clone(),quaternion:camera.quaternion.clone(),target:controls.target.clone()};
-   controls.enabled=false;controls.autoRotate=false;let restored=false;
-   restore=()=>{
-    if(restored)return;restored=true;
-    // Consume old OrbitControls inertia without changing the saved museum view.
-    controls.autoRotate=false;controls.enableDamping=false;controls.update(0);
-    camera.position.copy(parked.position);controls.target.copy(parked.target);controls.update(0);camera.position.copy(parked.position);camera.quaternion.copy(parked.quaternion);
-    controls.enableDamping=parked.damping;controls.autoRotate=parked.auto;controls.enabled=parked.enabled;resumeMuseum?.();
+  const entryFocus=document.activeElement,token=++starfieldToken;starfieldOpening=true;let owned=false,parked=null,restored=false,pendingDialog=null,cancelReason='return';
+  const finishPending=()=>{pendingDialog?.remove();pendingDialog=null;};
+  function restore(reason='return'){
+   if(restored)return;restored=true;travel.cancel();finishPending();
+   if(!parked){ui.setWorldView(false);try{options.onReturn?.(reason);}catch(error){console.warn('Museum return callback:',error);}if(entryFocus?.isConnected&&entryFocus.getClientRects().length)entryFocus.focus({preventScroll:true});return;}
+   const done=()=>{
+    const actualPosition=camera.position.clone(),actualQuaternion=camera.quaternion.clone(),actualTarget=controls.target.clone();
+    controls.enableDamping=false;controls.autoRotate=false;controls.update(0);
+    if(reason==='interaction'){camera.position.copy(actualPosition);camera.quaternion.copy(actualQuaternion);controls.target.copy(actualTarget);const offset=actualTarget.clone().sub(actualPosition),distance=offset.length(),bounded=THREE.MathUtils.clamp(distance,controls.minDistance,controls.maxDistance);if(distance>0&&bounded!==distance)controls.target.copy(actualPosition).addScaledVector(offset,bounded/distance);}
+    if(reason!=='interaction'){camera.position.copy(parked.position);camera.quaternion.copy(parked.quaternion);controls.target.copy(parked.target);camera.fov=parked.fov;camera.updateProjectionMatrix();}
+    controls.enableDamping=parked.damping;controls.autoRotate=parked.auto;controls.enabled=parked.enabled;
+    ui.setWorldView(false);if(!parked.infoHidden)restoreInfo();resumeMuseum?.();
+    if(parked.focus?.isConnected&&parked.focus.getClientRects().length)parked.focus.focus({preventScroll:true});try{options.onReturn?.(reason);}catch(error){console.warn('Museum return callback:',error);}
    };
-   // Retain the distant core while the close-up owns the shared loop; Return reuses it.
-   if(!starfield)starfield=createStarfieldExperience({THREE,renderer,getLanguage:()=>ui.language,isDesktop});
-   owned=await starfield.open({...options,onReturn:reason=>{try{restore();}finally{options.onReturn?.(reason);}}});return owned;
-  }catch(error){if(token===starfieldToken)try{starfield?.close('error');}catch{}console.warn('Museum starfield unavailable:',error);return false;}
-  finally{finishPending();if(!owned)restore?.();if(token===starfieldToken){starfieldOpening=false;cancelStarfieldPending=null;}}
+   if(reason==='interaction'||reason==='dispose'||disposed||document.hidden||renderer.getContext().isContextLost()){done();return;}
+   pendingDialog=document.createElement('div');pendingDialog.className='museum-world-travel';pendingDialog.setAttribute('role','status');pendingDialog.textContent=ui.language==='en'?'Returning to porcelain…':'正在返回瓷器…';document.body.append(pendingDialog);
+   travel.start(parked.position,parked.target,{fov:parked.fov}).then(completed=>{finishPending();if(!completed)reason='interaction';done();});
+  }
+  cancelStarfieldPending=reason=>{if(token!==starfieldToken)return;cancelReason=reason;starfieldToken++;starfieldOpening=false;cancelStarfieldPending=null;restore(reason);};
+  try{
+   const en=ui.language==='en';pendingDialog=document.createElement('div');pendingDialog.className='museum-world-travel';pendingDialog.setAttribute('role','status');
+   pendingDialog.innerHTML=`<span>${en?'Preparing the black hole…':'正在准备黑洞…'}</span><button type="button">${en?'View porcelain':'观瓷'}</button>`;
+   pendingDialog.querySelector('button').addEventListener('click',()=>cancelStarfieldPending?.('return'));document.body.append(pendingDialog);pendingDialog.querySelector('button').focus({preventScroll:true});
+   if(!starfieldPromise)starfieldPromise=import('./starfield-experience.js').catch(error=>{starfieldPromise=null;throw error;});
+   if(!backgroundPromise)backgroundPromise=import('./starfield-background.js').catch(error=>{backgroundPromise=null;throw error;});
+   const [{createStarfieldExperience}]=await Promise.all([starfieldPromise,backgroundPromise]);
+   if(disposed||token!==starfieldToken)return false;
+   if(!background&&!await warmBackground({deadline:performance.now()+1500,allowFocus:true}))throw new Error('The main-world black hole is unavailable');
+   if(disposed||token!==starfieldToken)return false;
+   cancelIntro('starfield');
+   parked={enabled:controls.enabled,auto:controls.autoRotate,damping:controls.enableDamping,position:camera.position.clone(),quaternion:camera.quaternion.clone(),target:controls.target.clone(),fov:camera.fov,infoHidden:document.getElementById('infoBox').classList.contains('hide'),focus:entryFocus};
+   controls.autoRotate=false;controls.enableDamping=false;controls.update(0);camera.position.copy(parked.position);camera.quaternion.copy(parked.quaternion);controls.target.copy(parked.target);controls.enabled=false;hideInfo();ui.setWorldView(true);
+   pendingDialog.querySelector('span').textContent=en?'Approaching the black hole…':'正在靠近黑洞…';
+   legacyBlackHole.updateWorldMatrix(true,false);
+   const destination=new THREE.Vector3().setFromSpherical(new THREE.Spherical(22,THREE.MathUtils.degToRad(84.5),THREE.MathUtils.degToRad(25))).multiplyScalar(.4);
+   legacyBlackHole.localToWorld(destination);const center=legacyBlackHole.getWorldPosition(new THREE.Vector3());
+   if(!await travel.start(destination,center,{fov:50})||disposed||token!==starfieldToken)return false;
+   controls.target.copy(center);finishPending();
+   if(!starfield)starfield=createStarfieldExperience({THREE,renderer,getLanguage:()=>ui.language,isDesktop,getBackground:()=>background});
+   owned=await starfield.open({...options,onReturn:reason=>restore(reason)});return owned;
+  }catch(error){
+   console.warn('Museum black-hole focus unavailable:',error);restore('return');
+   if(!disposed&&token===starfieldToken){const notice=document.createElement('div');notice.className='museum-world-travel';notice.setAttribute('role','status');notice.textContent=ui.language==='en'?'The black-hole view is unavailable on this device. You can continue viewing porcelain.':'当前设备暂时无法显示黑洞，可继续正常观瓷。';document.body.append(notice);const timer=setTimeout(()=>notice.remove(),6000);lifetime.signal.addEventListener('abort',()=>{clearTimeout(timer);notice.remove();},{once:true});}
+   return false;
+  }
+  finally{if(!owned)restore(cancelReason);if(token===starfieldToken){starfieldOpening=false;cancelStarfieldPending=null;}}
  }
  function updateBackground(delta){
   // Only an outstanding native context loss may retry admission once the page is visible.
   if(backgroundContextLost){void restoreBackground();return;}
-  if(disposed||!background||backgroundFailed||backgroundContextLost||starfield?.active||gesture?.active)return;
-  try{background.update(delta);}catch(error){backgroundFailed=true;try{background.dispose();}catch{}background=null;console.warn('Museum background starfield unavailable:',error);}
+  if(disposed||backgroundFailed||backgroundContextLost||backgroundPageHidden||document.hidden||gesture?.active)return;
+  if(!background){
+   const now=performance.now();if(!starfieldOpening&&!backgroundWarm&&!intro?.running&&!gallery?.active&&now>=retryBackgroundAt&&document.getElementById('loading')?.style.display==='none'){retryBackgroundAt=now+2500;void warmBackground({deadline:now+1500});}
+   return;
+  }
+  try{background.update(delta,starfield?.frameState);}catch(error){backgroundFailed=true;try{starfield?.close('error');}catch(closeError){console.warn('Museum context return:',closeError);}try{background?.dispose();}catch{}background=null;console.warn('Museum background starfield unavailable:',error);}
  }
 
  const ui=createUI({controls,hideInfo,restoreInfo,cancelIntro,capture,unwrap,switchExhibit:direction=>gallery?.step(direction),openGesture:()=>!starfield?.active&&gesture.open(),gestureActive:()=>gesture?.active,openBloom:options=>!starfield?.active&&gesture.openBloom(options),openScan:options=>!starfield?.active&&gesture.openScan(options),openStarfield,starfieldActive:exclusiveActive,getStudioRenderer});
@@ -142,11 +164,11 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
   introCancelled=true;finishIntro();if(reason!=='gallery-step')gallery?.cancel(reason);
  }
  function finishIntro(){if(!intro)return;controls.enableDamping=intro.damping;controls.autoRotate=intro.auto;if(!intro.infoHidden)restoreInfo();intro=null;document.body.classList.remove('museum-opening');}
- const interruptView=()=>{if(!gesture.active&&!exclusiveActive())cancelIntro('interaction');};
+ const interruptView=()=>{if(travel.active){if(cancelStarfieldPending)cancelStarfieldPending('interaction');else travel.cancel();}else if(!gesture.active&&!exclusiveActive())cancelIntro('interaction');};
  listen(renderer.domElement,'pointerdown',interruptView,{capture:true});listen(renderer.domElement,'wheel',interruptView,{capture:true,passive:true});
  listen(document.getElementById('resetViewBtn'),'click',()=>cancelIntro('reset'),{capture:true});
  listen(document,'visibilitychange',()=>{if(document.hidden)cancelIntro('background');});
- listen(document,'keydown',e=>{if(e.key==='Escape'){if(cancelStarfieldPending)e.preventDefault();cancelIntro();}});
+ listen(document,'keydown',e=>{if(e.key==='Escape'){if(starfield?.active){e.preventDefault();starfield.close('return');return;}if(travel.active&&!cancelStarfieldPending){e.preventDefault();travel.cancel();return;}if(cancelStarfieldPending)e.preventDefault();cancelIntro();}});
  const onControlsStart=()=>cancelIntro('interaction');controls.addEventListener('start',onControlsStart);
  const onControlsEnd=()=>{if(ui.panel)controls.autoRotate=false;};controls.addEventListener('end',onControlsEnd);
  cleanup.push(()=>{controls.removeEventListener('start',onControlsStart);controls.removeEventListener('end',onControlsEnd);});
@@ -209,10 +231,12 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
    });return best;
   });
  }
- function update(delta){
-  time+=delta;
+ function update(delta,rawDelta=delta){
+  frameDelta=rawDelta;time+=delta;
+  if(starfield?.active)starfield.render(rawDelta);
+  travel.update(delta);
   gallery.update();
-  gesture.update(delta);updateBackground(delta);
+  gesture.update(delta);
   if(intro?.running){intro.elapsed=(performance.now()-intro.startAt)/1000;const p=Math.min(1,intro.elapsed/2.6),ease=p*p*(3-2*p);camera.position.lerpVectors(intro.start,initialPosition,ease);camera.position.x-=3*Math.sin(Math.PI*ease);camera.position.y+=1.5*Math.sin(Math.PI*ease);controls.target.copy(initialTarget);}
   if(ui.panel)controls.autoRotate=false;
   if(time>5&&!reduced.matches&&!pausedEffects){sampleFrames++;if(delta>.04)heavySamples++;
@@ -241,7 +265,8 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
   if(renderer.getContext().isContextLost())throw Object.assign(new Error('WebGL context temporarily unavailable'),{code:'MUSEUM_CONTEXT_LOST'});
  }
  function capture(){
-  if(starfield?.active)return starfield.capture();
+  if(starfield?.frameState?.capturing)throw Object.assign(new Error('PNG capture is in progress'),{code:'MUSEUM_STARFIELD_CAPTURE_BUSY'});
+  updateBackground(0);
   // WebGL's default drawing buffer is captured synchronously after the complete mist composition.
   requireContext();renderMuseum();requireContext();const canvas=document.createElement('canvas');canvas.width=renderer.domElement.width;canvas.height=renderer.domElement.height;
   canvas.getContext('2d').drawImage(renderer.domElement,0,0);return canvas;
@@ -275,9 +300,14 @@ export function createExperience({THREE,scene,renderer,camera,controls,renderMus
   const canvas=document.createElement('canvas');canvas.width=1536;canvas.height=768;const context=canvas.getContext('2d'),image=context.createImageData(1536,768);
   for(let y=0;y<768;y++)image.data.set(pixels.subarray((767-y)*1536*4,(768-y)*1536*4),y*1536*4);context.putImageData(image,0,0);return canvas;
  }
- const api={...ui,ready,prepareIntro,startIntro,warmBackground,update,afterControls:updateHotspots,cancelIntro,capture,unwrap,dispose,
-  get exclusiveActive(){return !!starfield?.active;},
-  renderExclusive(delta){if(!starfield?.active)return starfieldOpening;starfield.render(delta);return true;},
+ const api={...ui,ready,prepareIntro,startIntro,warmBackground,update,afterControls(){updateBackground(frameDelta);updateHotspots();},cancelIntro,capture,unwrap,dispose,
+  get exclusiveActive(){return false;},
+  get blackholeActive(){return !!starfield?.active;},
+  get ownsCamera(){return !!starfield?.active||travel.active;},
+  get worldView(){return starfield?.active?'blackhole':travel.active?'travelling':'porcelain';},
+  get worldState(){return {camera:camera.uuid,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray(),fov:camera.fov,controlsEnabled:controls.enabled,autoRotate:controls.autoRotate,damping:controls.enableDamping,backgroundReady:!!background,backgroundSize:background?.size??null,contextLost:backgroundContextLost};},
+  renderExclusive(){return false;},
+  renderBackground(){if(!background)return false;try{return background.render();}catch(error){backgroundFailed=true;try{starfield?.close('error');}catch(closeError){console.warn('Museum context return:',closeError);}try{background?.dispose();}catch{}background=null;console.warn('Museum background draw unavailable:',error);return false;}},
   get introActive(){return !!intro;},get panel(){return ui.panel;},get hotspotsOn(){return ui.hotspotsOn;},get language(){return ui.language;},get effectsTier(){return effectsTier;},
   pauseEffects(value=true){pausedEffects=value;setReduced();}
  };

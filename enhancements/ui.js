@@ -10,6 +10,11 @@ export function createUI(core) {
  let language='zh'; try { if(localStorage.getItem('museum-language')==='en') language='en'; } catch {}
  let panel=null, saved=null, tab='details', selected=0, hotspotsOn=false, previewURL=null, captured=null, unwrapCanvas=null, exportToken=0;
  let loadingProgress=null, loadingError=window.museumLoadErrorKey || null, viewing=false;
+ const worldHidden=new Map();
+ function setWorldView(active){
+  if(active){if(worldHidden.size)return;for(const node of document.querySelectorAll('.title,.sub,.info,.tip,.museum-gallery,.hotspots,.museum-tools,#museumMenu,#resetViewBtn,#museumView,#restoreBtn')){worldHidden.set(node,{inert:node.inert,aria:node.getAttribute('aria-hidden')});node.inert=true;node.setAttribute('aria-hidden','true');}document.body.classList.add('museum-blackhole-view');}
+  else{document.body.classList.remove('museum-blackhole-view');for(const [node,state]of worldHidden){node.inert=state.inert;if(state.aria===null)node.removeAttribute('aria-hidden');else node.setAttribute('aria-hidden',state.aria);}worldHidden.clear();}
+ }
  let studio=null,studioHost=null,studioToken=0,studioSuspension=null,uiDisposed=false;
  function disposeStudio(){studioToken++;studioSuspension=null;studio?.dispose();studio=null;studioHost?.remove();studioHost=null;document.getElementById('museumDialog')?.classList.remove('innovation-wide');}
  let exhibit=exhibits[0],hotspots=exhibit.hotspots,currentIndex=0,pendingIndex=0,switchState='idle';
@@ -39,7 +44,7 @@ export function createUI(core) {
   [['museumLanguage','language'],['museumExplore','explore'],['menuExplore','explore'],['museumExport','export'],['menuExport','export'],['museumMore','more'],['museumClose','close'],['museumView','viewArtwork'],['museumReturn','returnToMuseum'],['resetViewBtn','reset'],['hideBtn','hide'],['restoreBtn','restore'],['retryBtn','retry']].forEach(([id,key])=>label(id,key));
   tools.setAttribute('aria-label',language==='zh'?'展馆工具':'Museum tools');
   ['museumGesture','menuGesture'].forEach(id=>{$(id).textContent=language==='zh'?'手势粒子':'Hand particles';});
-  ['museumStarfieldButton','menuStarfield'].forEach(id=>{$(id).textContent=language==='zh'?'星河观景':'Starfield observatory';});
+  ['museumStarfieldButton','menuStarfield'].forEach(id=>{$(id).textContent=language==='zh'?'观黑洞':'View black hole';});
   buttons.forEach((b,i)=>{b.setAttribute('aria-label',hotspots[i][language][0]);b.querySelector('span').textContent=hotspots[i][language][0];});
   updateGallery();updateLoading();if(panel&&!studioSuspension) renderPanel();
  }
@@ -203,13 +208,13 @@ export function createUI(core) {
  listen(document,'pointerdown',e=>{if(!menu.contains(e.target)&&!tools.contains(e.target))closeMenu();});
  listen(document,'keydown',e=>{if(e.key==='Escape'){stopViewing();if(!menu.hidden){closeMenu();$('museumMore').focus();}}});
  listen(matchMedia('(max-width:900px)'),'change',closeMenu);
- const api={t,translate,get language(){return language;},get panel(){return panel;},get hotspotsOn(){return hotspotsOn&&!viewing&&!core.gestureActive?.();},buttons,
+ const api={t,translate,setWorldView,get language(){return language;},get panel(){return panel;},get hotspotsOn(){return hotspotsOn&&!viewing&&!core.gestureActive?.();},buttons,
   setExhibit(index){stopViewing();if(!studioSuspension)close();exportToken++;captured=unwrapCanvas=null;currentIndex=index;exhibit=exhibits[index];hotspots=exhibit.hotspots;selected=0;buttons.forEach(b=>b.hidden=true);translate();},
   galleryState(index,target,state){currentIndex=index;pendingIndex=target;switchState=state;updateGallery();},
   loading(loaded,total){loadingProgress=total>0?Math.min(100,Math.max(0,Math.round(loaded/total*100))):null;updateLoading();},
   loadError(key){loadingError=key;$('loading').classList.add('failed');updateLoading();},
   close,hideHotspots(){hotspotsOn=false;layer.hidden=true;},
-  dispose(){uiDisposed=true;stopViewing();close();lifetime.abort();exportToken++;if(previewURL)URL.revokeObjectURL(previewURL);captured=unwrapCanvas=null;nodes.forEach(node=>node.remove());}
+  dispose(){setWorldView(false);uiDisposed=true;stopViewing();close();lifetime.abort();exportToken++;if(previewURL)URL.revokeObjectURL(previewURL);captured=unwrapCanvas=null;nodes.forEach(node=>node.remove());}
  };
  translate();return api;
  } catch(error) {lifetime.abort();nodes.forEach(node=>node.remove());throw error;}

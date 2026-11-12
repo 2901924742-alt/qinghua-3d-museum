@@ -5,11 +5,12 @@ const experience=fs.readFileSync(path.join(root,'enhancements/experience.js'),'u
 const guard=html.slice(html.indexOf('function disableExperience('),html.indexOf('function safeExperience('));
 (async()=>{
  const THREE=await import(pathToFileURL(path.join(root,'vendor/three.module.js')).href);
+ const {createViewTravel}=await import(pathToFileURL(path.join(root,'enhancements/view-travel.js')).href);
  for(const cleanupThrows of [false,true]){
   const failure=Error('Injected gesture construction failure');let disposed=0,aborted=0,warnings=0;
   const controls={enabled:true},events=new EventTarget();
   class Lifecycle extends AbortController {abort(){aborted++;super.abort();}}
-  const context={THREE,controls,AbortController:Lifecycle,console:{warn(){warnings++;}},matchMedia:()=>({matches:false}),
+  const context={THREE,controls,createViewTravel,AbortController:Lifecycle,console:{warn(){warnings++;}},matchMedia:()=>({matches:false}),
    createUI:()=>({dispose(){disposed++;if(cleanupThrows)throw Error('Injected UI cleanup failure');}}),
    createGestureExperience:()=>{controls.enabled=false;throw failure;},museumExperience:null,addEventListener:events.addEventListener.bind(events)};
   context.window=context;vm.createContext(context);vm.runInContext(experience+'\n'+guard,context);

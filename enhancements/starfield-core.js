@@ -50,7 +50,8 @@ export function createStarfieldCore({THREE,renderer,camera,isMobile=false}) {
   return {...params,inner:params.followIsco?isco(params.spin):params.inner};
  }
  function makeBloom(w,h){
-  const pass=new UnrealBloomPass(new THREE.Vector2(w,h),settings.bloom,settings.bloomRadius,.85);
+  // The soft halo uses a smaller buffer; ray tracing and temporal history retain the full reconstruction size.
+  const pass=new UnrealBloomPass(new THREE.Vector2(Math.max(2,Math.ceil(w/2)),Math.max(2,Math.ceil(h/2))),settings.bloom,settings.bloomRadius,.85);
   const owned=[pass.renderTargetBright,...pass.renderTargetsHorizontal,...pass.renderTargetsVertical,pass.materialHighPassFilter,...pass.separableBlurMaterials,pass.compositeMaterial,pass.blendMaterial,pass.basic,pass.fsQuad];
   owned.forEach(own);
   // Match the supplied r170 working-space luminance while retaining the museum's r160 engine.
